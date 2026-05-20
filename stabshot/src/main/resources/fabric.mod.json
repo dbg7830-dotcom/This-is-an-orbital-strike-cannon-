@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "stabshot",
+  "version": "1.0.0",
+  "name": "StabShot",
+  "description": "Custom orbital stab shot — compressed TNT column from aimed block. Works with PvPBot.",
+  "authors": ["PvPBot Project"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.pvpbot.stabshot.StabShotMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.15.11",
+    "fabric-api": "*",
+    "minecraft": "1.21.1"
+  }
+}
