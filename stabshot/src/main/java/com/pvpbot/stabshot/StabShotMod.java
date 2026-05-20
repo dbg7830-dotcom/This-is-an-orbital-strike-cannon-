@@ -24,7 +24,7 @@ public class StabShotMod implements ModInitializer {
 
         STAB_ROD = Registry.register(
                 Registries.ITEM,
-                new Identifier(MOD_ID, "stab_rod"),
+                Identifier.of(MOD_ID, "stab_rod"),
                 new StabRodItem(
                         new Item.Settings()
                                 .maxCount(1)
