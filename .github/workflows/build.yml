@@ -1,10 +1,6 @@
 name: Build StabShot 1.21.1
 
 on:
-  push:
-    branches: [ main, dev ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
