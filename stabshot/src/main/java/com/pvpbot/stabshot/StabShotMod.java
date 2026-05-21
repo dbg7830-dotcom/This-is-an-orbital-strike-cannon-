@@ -1,10 +1,12 @@
 package com.pvpbot.stabshot;
 
 import com.pvpbot.stabshot.command.StabShotCommand;
+import com.pvpbot.stabshot.config.StabConfig;
 import com.pvpbot.stabshot.item.StabRodItem;
 import com.pvpbot.stabshot.logic.PendingExplosionQueue;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.minecraft.item.Item;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
@@ -22,6 +24,9 @@ public class StabShotMod implements ModInitializer {
     @Override
     public void onInitialize() {
         LOGGER.info("[StabShot] Initializing...");
+
+        // Load config from config/stabshot.properties (creates with defaults if missing)
+        ServerLifecycleEvents.SERVER_STARTING.register(server -> StabConfig.load());
 
         // Register tick-based explosion scheduler
         PendingExplosionQueue.register();
