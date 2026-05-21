@@ -1,51 +1,54 @@
 package com.pvpbot.stabshot.logic;
 
-import net.minecraft.entity.TntEntity;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.world.World;
 
 /**
- * StabLogic — spawns a compressed vertical TNT column.
+ * StabLogic — fires a vertical stab column using direct world explosions.
  *
- * Design goals (fixing OrbitalStrike+ complaints):
- *  - Starts only COLUMN_START_ABOVE blocks above the aimed block, NOT sky limit.
- *    Zero lag, instant visual, covers head + body of a player at that block.
- *  - Column of COLUMN_HEIGHT TNT entities placed downward.
- *  - Staggered fuse: bottom TNT has shortest fuse = explodes first = upward push.
- *  - Safe to call from any server-side context: fake player, scheduler, command.
+ * v2 fixes:
+ *  - No TntEntity — fully invisible, no floating TNT model shown.
+ *  - Direct world.createExplosion() at power 6.5f (vanilla TNT = 4.0f).
+ *  - True tick-staggered scheduling via a counter checked on server tick.
+ *    Each blast fires 2 ticks after the previous one.
+ *  - Column starts 2 blocks above aimed surface = hits head AND body.
  */
 public class StabLogic {
 
-    /** Blocks above the aimed surface where the column starts. */
-    private static final int COLUMN_START_ABOVE = 2;
-
-    /** Total TNT entities in the column. */
-    private static final int COLUMN_HEIGHT = 8;
-
-    /** Base fuse for the topmost TNT (ticks). Each lower TNT gets 1 fewer tick. */
-    private static final int BASE_FUSE = 10;
+    private static final int   COLUMN_START_ABOVE = 2;
+    private static final int   COLUMN_HEIGHT      = 8;
+    private static final float EXPLOSION_POWER    = 9.5f;
+    private static final int   TICK_DELAY_BETWEEN = 2;
 
     /**
-     * Spawns the stab column at block coordinates (x, y, z).
-     * y is the surface of the aimed block — column starts COLUMN_START_ABOVE above it.
+     * Fires a stab column at block (x, y, z).
+     * Explosions are staggered using the pending queue — each fires 2 ticks apart.
      */
     public static void summonStab(ServerWorld world, int x, int y, int z) {
         int startY = y + COLUMN_START_ABOVE;
+        MinecraftServer server = world.getServer();
+
         for (int i = 0; i < COLUMN_HEIGHT; i++) {
-            int tntY = startY - i;
-            // Bottom TNT explodes first (shortest fuse) → upward push
-            int fuse = Math.max(1, BASE_FUSE - i);
-            spawnTnt(world, x, tntY, z, fuse);
+            final double ex = x + 0.5;
+            final double ey = startY - i;
+            final double ez = z + 0.5;
+            final long targetTick = server.getTicks() + (long)(i * TICK_DELAY_BETWEEN);
+
+            // Register a one-shot listener that fires at targetTick
+            PendingExplosionQueue.schedule(world, ex, ey, ez, targetTick);
         }
     }
 
-    private static void spawnTnt(ServerWorld world, int x, int y, int z, int fuse) {
-        TntEntity tnt = new TntEntity(world,
-                x + 0.5, // center of block X
-                y,
-                z + 0.5, // center of block Z
-                null     // no causing entity
+    static void fireExplosion(ServerWorld world, double x, double y, double z) {
+        world.createExplosion(
+                null,
+                null,
+                null,
+                x, y, z,
+                EXPLOSION_POWER,
+                false,
+                World.ExplosionSourceType.TNT
         );
-        tnt.setFuse(fuse);
-        world.spawnEntity(tnt);
     }
 }
