@@ -3,8 +3,11 @@ package com.pvpbot.stabshot.item;
 import com.pvpbot.stabshot.logic.StabLogic;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.NbtComponent;
+import net.minecraft.component.type.LoreComponent;
+import net.minecraft.component.type.UnbreakableComponent;
 import net.minecraft.item.FishingRodItem;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.item.tooltip.TooltipType;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -22,31 +25,31 @@ import net.minecraft.world.World;
 import java.util.List;
 
 /**
- * StabRodItem — a FishingRod subclass that fires a stab shot instead of casting.
+ * StabRodItem — extends FishingRodItem so it renders as a vanilla fishing rod.
  *
- * Identity check: the item has a custom NBT tag STAB_ROD_KEY = true so that:
- *  - Renaming with an anvil does NOT produce a functional rod (the key is gone).
- *  - Only items given via /giveob or the bot integration carry the tag.
- *  - isStabRod(stack) checks for this tag — used by PvPBot's integration.
+ * Texture fix: we use Items.FISHING_ROD's model via the ITEM_MODEL component
+ * so no custom texture asset is needed — it looks exactly like a fishing rod.
+ *
+ * Use count fix: /giveob 3 stab gives 3 SEPARATE ItemStacks each with 1 use.
+ * Each stack breaks (is removed) after one fire.
+ *
+ * Identity: custom NBT tag StabShotRod=true. Renaming via anvil loses the tag
+ * so the renamed rod won't function.
  */
 public class StabRodItem extends FishingRodItem {
 
-    /** NBT key that marks a stack as a legitimate stab rod. */
     public static final String STAB_ROD_KEY = "StabShotRod";
 
     public StabRodItem(Settings settings) {
         super(settings);
     }
 
-    /**
-     * On right-click: raycast to find the block the player is looking at,
-     * then fire the stab column at that position.
-     */
     @Override
-    public TypedActionResult<ItemStack> use(World world, net.minecraft.entity.player.PlayerEntity playerEntity, Hand hand) {
+    public TypedActionResult<ItemStack> use(World world,
+                                             net.minecraft.entity.player.PlayerEntity playerEntity,
+                                             Hand hand) {
         ItemStack stack = playerEntity.getStackInHand(hand);
 
-        // Validate the item is a legitimate stab rod
         if (!isStabRod(stack)) {
             return TypedActionResult.pass(stack);
         }
@@ -58,8 +61,8 @@ public class StabRodItem extends FishingRodItem {
         ServerPlayerEntity player = (ServerPlayerEntity) playerEntity;
         ServerWorld serverWorld   = (ServerWorld) world;
 
-        // Raycast from eye position to find aimed block (max 64 blocks, no fluids)
-        var eyePos = player.getEyePos();
+        // Raycast to aimed block — max 64 blocks
+        var eyePos  = player.getEyePos();
         var lookVec = player.getRotationVec(1.0f);
         var endVec  = eyePos.add(lookVec.multiply(64.0));
 
@@ -75,113 +78,99 @@ public class StabRodItem extends FishingRodItem {
             return TypedActionResult.fail(stack);
         }
 
-        // Fire at the aimed block position
         BlockPos target = hit.getBlockPos();
         StabLogic.summonStab(serverWorld, target.getX(), target.getY(), target.getZ());
 
-        // Consume one use (durability) — item is unbreakable by default but
-        // if the player has a finite-use rod from /giveob <amount> we count down
-        consumeUse(stack, player);
+        // Each stab rod has exactly 1 use — consume it now
+        consumeRod(stack, player, hand);
 
         return TypedActionResult.success(stack);
     }
 
     /**
-     * Consume one use from the item's custom use counter.
-     * If the counter hits 0, remove the item from the player's hand.
-     * If uses == -1 (infinite), do nothing.
+     * Consumes this rod after one use.
+     *  - Infinite rod (UsesLeft == -1): do nothing.
+     *  - Finite rod (UsesLeft >= 1): remove the stack entirely.
+     *    The player gets /giveob 3 stab → 3 separate rods, each consumed after 1 use.
      */
-    private void consumeUse(ItemStack stack, ServerPlayerEntity player) {
+    private void consumeRod(ItemStack stack, ServerPlayerEntity player, Hand hand) {
         NbtComponent customData = stack.get(DataComponentTypes.CUSTOM_DATA);
         if (customData == null) return;
 
-        NbtCompound nbt = customData.copyNbt();
-        int uses = nbt.getInt("UsesLeft");
-        if (uses <= 0) return; // -1 = infinite, 0 = already expired
+        int uses = customData.copyNbt().getInt("UsesLeft");
+        if (uses == -1) return; // infinite — don't consume
 
-        uses--;
-        nbt.putInt("UsesLeft", uses);
-        stack.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(nbt));
-
-        if (uses == 0) {
-            // Remove from hand
-            player.setStackInHand(Hand.MAIN_HAND, ItemStack.EMPTY);
-        } else {
-            // Update lore to show remaining uses
-            updateLore(stack, uses);
-        }
-    }
-
-    /** Updates the lore line that shows remaining uses. */
-    private static void updateLore(ItemStack stack, int uses) {
-        stack.set(DataComponentTypes.LORE,
-                new net.minecraft.component.type.LoreComponent(List.of(
-                        Text.literal("§7Aim at a block and right-click to fire."),
-                        Text.literal("§6Uses remaining: §f" + uses)
-                )));
+        // Finite rod — one use per rod, remove it
+        player.setStackInHand(hand, ItemStack.EMPTY);
     }
 
     @Override
-    public void appendTooltip(ItemStack stack, TooltipContext context, List<Text> tooltip, TooltipType type) {
+    public void appendTooltip(ItemStack stack, TooltipContext context,
+                               List<Text> tooltip, TooltipType type) {
+        NbtComponent data = stack.get(DataComponentTypes.CUSTOM_DATA);
+        if (data != null) {
+            int uses = data.copyNbt().getInt("UsesLeft");
+            if (uses == -1) {
+                tooltip.add(Text.literal("§a§lInfinite uses").formatted(Formatting.GREEN));
+            } else {
+                tooltip.add(Text.literal("§61 use per rod").formatted(Formatting.GOLD));
+            }
+        }
         tooltip.add(Text.literal("§7Aim at a block and right-click to fire.").formatted(Formatting.GRAY));
-        tooltip.add(Text.literal("§cObtainable via command only.").formatted(Formatting.DARK_RED));
+        tooltip.add(Text.literal("§cCommand-only item.").formatted(Formatting.DARK_RED));
     }
 
-    // -------------------------------------------------------------------------
-    // Static factory & helpers
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // Factory — creates a stab rod stack that LOOKS like a vanilla fishing rod
+    // =========================================================================
 
     /**
-     * Creates a stab rod ItemStack with the proper NBT marker, custom name,
-     * and use count.
+     * Creates a stab rod ItemStack.
      *
-     * @param uses Number of uses. Use -1 for infinite (no counter shown).
+     * Uses Items.FISHING_ROD as the model reference via ITEM_MODEL component
+     * so no custom texture is needed — renders as a normal fishing rod in-hand
+     * and in inventory.
+     *
+     * @param item The registered StabRodItem instance.
+     * @param uses -1 = infinite. Any positive number = finite (1 use per rod,
+     *             caller must create `uses` separate stacks for finite use).
      */
     public static ItemStack createStack(StabRodItem item, int uses) {
         ItemStack stack = new ItemStack(item);
 
-        // Custom name — cannot be renamed away via anvil since the NBT key survives
+        // Point the model to vanilla fishing_rod — fixes purple texture completely.
+        // ITEM_MODEL component overrides which model JSON the game uses for this stack.
+        stack.set(DataComponentTypes.ITEM_MODEL,
+                new net.minecraft.util.Identifier("minecraft", "fishing_rod"));
+
+        // Custom name
         stack.set(DataComponentTypes.CUSTOM_NAME,
                 Text.literal("§6§lStab Shot Rod").styled(s -> s.withItalic(false)));
 
-        // Mark as legitimate stab rod + store use count
+        // NBT marker + use count
         NbtCompound nbt = new NbtCompound();
         nbt.putBoolean(STAB_ROD_KEY, true);
         nbt.putInt("UsesLeft", uses);
         stack.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(nbt));
 
         // Lore
-        if (uses > 0) {
-            stack.set(DataComponentTypes.LORE,
-                    new net.minecraft.component.type.LoreComponent(List.of(
-                            Text.literal("§7Aim at a block and right-click to fire."),
-                            Text.literal("§6Uses remaining: §f" + uses)
-                    )));
-        } else {
-            stack.set(DataComponentTypes.LORE,
-                    new net.minecraft.component.type.LoreComponent(List.of(
-                            Text.literal("§7Aim at a block and right-click to fire."),
-                            Text.literal("§a§lInfinite uses")
-                    )));
-        }
+        List<Text> lore = uses == -1
+                ? List.of(Text.literal("§a§lInfinite uses"),
+                          Text.literal("§7Aim at a block and right-click to fire."))
+                : List.of(Text.literal("§6§l 1 use per rod — use it wisely."),
+                          Text.literal("§c§l Aim at a block and right-click to fire."));
+        stack.set(DataComponentTypes.LORE, new LoreComponent(lore));
 
-        // Make unbreakable so durability never runs out
-        stack.set(DataComponentTypes.UNBREAKABLE,
-                new net.minecraft.component.type.UnbreakableComponent(false));
+        // Unbreakable — no durability bar shown
+        stack.set(DataComponentTypes.UNBREAKABLE, new UnbreakableComponent(false));
 
         return stack;
     }
 
-    /**
-     * Returns true if this ItemStack is a legitimate stab rod
-     * (has the STAB_ROD_KEY NBT marker).
-     *
-     * Used by PvPBot's integration to skip fishing rod checks.
-     */
     public static boolean isStabRod(ItemStack stack) {
         if (stack.isEmpty()) return false;
-        NbtComponent customData = stack.get(DataComponentTypes.CUSTOM_DATA);
-        if (customData == null) return false;
-        return customData.copyNbt().getBoolean(STAB_ROD_KEY);
+        NbtComponent data = stack.get(DataComponentTypes.CUSTOM_DATA);
+        if (data == null) return false;
+        return data.copyNbt().getBoolean(STAB_ROD_KEY);
     }
 }
