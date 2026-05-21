@@ -3,7 +3,6 @@ package com.pvpbot.stabshot;
 import com.pvpbot.stabshot.command.StabShotCommand;
 import com.pvpbot.stabshot.config.StabConfig;
 import com.pvpbot.stabshot.item.StabRodItem;
-import com.pvpbot.stabshot.logic.PendingExplosionQueue;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -25,16 +24,15 @@ public class StabShotMod implements ModInitializer {
     public void onInitialize() {
         LOGGER.info("[StabShot] Initializing...");
 
-        // Load config from config/stabshot.properties (creates with defaults if missing)
+        // Load config from config/stabshot.properties
         ServerLifecycleEvents.SERVER_STARTING.register(server -> StabConfig.load());
-
-        // Register tick-based explosion scheduler
-        PendingExplosionQueue.register();
 
         STAB_ROD = Registry.register(
                 Registries.ITEM,
                 Identifier.of(MOD_ID, "stab_rod"),
-                new StabRodItem(new Item.Settings().maxCount(1))
+                // maxDamage(1) = 1 durability point — finite rods break after 1 use
+                // maxCount(1) = non-stackable
+                new StabRodItem(new Item.Settings().maxCount(1).maxDamage(1))
         );
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
