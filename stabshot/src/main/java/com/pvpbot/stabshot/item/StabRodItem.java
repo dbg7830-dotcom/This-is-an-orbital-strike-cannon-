@@ -5,11 +5,13 @@ import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.NbtComponent;
 import net.minecraft.component.type.LoreComponent;
 import net.minecraft.component.type.UnbreakableComponent;
+import net.minecraft.entity.EquipmentSlot;
+import net.minecraft.enchantment.Enchantment;
 import net.minecraft.item.FishingRodItem;
 import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
 import net.minecraft.item.tooltip.TooltipType;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
@@ -25,16 +27,22 @@ import net.minecraft.world.World;
 import java.util.List;
 
 /**
- * StabRodItem — extends FishingRodItem so it renders as a vanilla fishing rod.
+ * StabRodItem — a fishing rod that fires a stab column on right-click.
  *
- * Texture fix: we use Items.FISHING_ROD's model via the ITEM_MODEL component
- * so no custom texture asset is needed — it looks exactly like a fishing rod.
+ * Rendering: uses stab_rod.json model pointing to minecraft:item/fishing_rod.
+ *            Looks exactly like a vanilla fishing rod. No custom texture needed.
  *
- * Use count fix: /giveob 3 stab gives 3 SEPARATE ItemStacks each with 1 use.
- * Each stack breaks (is removed) after one fire.
+ * Finite rods (/giveob 3 stab):
+ *   - maxDamage = 1 so they have 1 durability point.
+ *   - On use: stack.damage(1, player, hand) triggers vanilla break animation + sound.
+ *   - NOT enchantable — isEnchantable() returns false, isEnchantable tag false.
+ *   - No Unbreakable component.
  *
- * Identity: custom NBT tag StabShotRod=true. Renaming via anvil loses the tag
- * so the renamed rod won't function.
+ * Infinite rods (/giveob infinite stab):
+ *   - UnbreakableComponent(false) = unbreakable, no tooltip shown.
+ *   - UsesLeft = -1 in custom NBT.
+ *
+ * Identity: STAB_ROD_KEY NBT tag. Renaming via anvil loses the tag = rod won't fire.
  */
 public class StabRodItem extends FishingRodItem {
 
@@ -43,6 +51,25 @@ public class StabRodItem extends FishingRodItem {
     public StabRodItem(Settings settings) {
         super(settings);
     }
+
+    // -------------------------------------------------------------------------
+    // Enchant prevention — no mending, no flame, nothing
+    // -------------------------------------------------------------------------
+
+    @Override
+    public boolean isEnchantable(ItemStack stack) {
+        return false;
+    }
+
+    @Override
+    public boolean canBeEnchantedWith(ItemStack stack, RegistryEntry<Enchantment> enchantment,
+                                       net.minecraft.item.Item.TooltipContext context) {
+        return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Use — raycast to block, fire stab, break rod
+    // -------------------------------------------------------------------------
 
     @Override
     public TypedActionResult<ItemStack> use(World world,
@@ -81,28 +108,32 @@ public class StabRodItem extends FishingRodItem {
         BlockPos target = hit.getBlockPos();
         StabLogic.summonStab(serverWorld, target.getX(), target.getY(), target.getZ());
 
-        // Each stab rod has exactly 1 use — consume it now
+        // Consume rod
         consumeRod(stack, player, hand);
 
         return TypedActionResult.success(stack);
     }
 
     /**
-     * Consumes this rod after one use.
-     *  - Infinite rod (UsesLeft == -1): do nothing.
-     *  - Finite rod (UsesLeft >= 1): remove the stack entirely.
-     *    The player gets /giveob 3 stab → 3 separate rods, each consumed after 1 use.
+     * Finite rod: damage by 1 — triggers vanilla break animation, sound, particles.
+     * Infinite rod (UsesLeft == -1): do nothing.
      */
     private void consumeRod(ItemStack stack, ServerPlayerEntity player, Hand hand) {
-        NbtComponent customData = stack.get(DataComponentTypes.CUSTOM_DATA);
-        if (customData == null) return;
+        NbtComponent data = stack.get(DataComponentTypes.CUSTOM_DATA);
+        if (data == null) return;
 
-        int uses = customData.copyNbt().getInt("UsesLeft");
-        if (uses == -1) return; // infinite — don't consume
+        int uses = data.copyNbt().getInt("UsesLeft");
+        if (uses == -1) return; // infinite — never breaks
 
-        // Finite rod — one use per rod, remove it
-        player.setStackInHand(hand, ItemStack.EMPTY);
+        // Use EquipmentSlot mapped from Hand — this is the safe 1.21.1 signature
+        EquipmentSlot slot = (hand == Hand.MAIN_HAND)
+                ? EquipmentSlot.MAINHAND : EquipmentSlot.OFFHAND;
+        stack.damage(1, player, slot);
     }
+
+    // -------------------------------------------------------------------------
+    // Tooltip
+    // -------------------------------------------------------------------------
 
     @Override
     public void appendTooltip(ItemStack stack, TooltipContext context,
@@ -113,51 +144,50 @@ public class StabRodItem extends FishingRodItem {
             if (uses == -1) {
                 tooltip.add(Text.literal("§a§lInfinite uses").formatted(Formatting.GREEN));
             } else {
-                tooltip.add(Text.literal("§61 use per rod").formatted(Formatting.GOLD));
+                tooltip.add(Text.literal("§61 use — breaks on fire").formatted(Formatting.GOLD));
             }
         }
-        tooltip.add(Text.literal("§7Aim at a block and right-click to fire.").formatted(Formatting.GRAY));
-        tooltip.add(Text.literal("§cCommand-only item.").formatted(Formatting.DARK_RED));
+        tooltip.add(Text.literal("§7Aim at a block, right-click to fire.").formatted(Formatting.GRAY));
+        tooltip.add(Text.literal("§cCommand-only. Cannot be enchanted.").formatted(Formatting.DARK_RED));
     }
 
-    // =========================================================================
-    // Factory — creates a stab rod stack that LOOKS like a vanilla fishing rod
-    // =========================================================================
+    // -------------------------------------------------------------------------
+    // Factory
+    // -------------------------------------------------------------------------
 
     /**
-     * Creates a stab rod ItemStack.
-     *
-     * Uses Items.FISHING_ROD as the model reference via ITEM_MODEL component
-     * so no custom texture is needed — renders as a normal fishing rod in-hand
-     * and in inventory.
-     *
-     * @param item The registered StabRodItem instance.
-     * @param uses -1 = infinite. Any positive number = finite (1 use per rod,
-     *             caller must create `uses` separate stacks for finite use).
+     * @param item The registered StabRodItem.
+     * @param uses -1 = infinite (unbreakable). 1 = single use, breaks on fire.
      */
     public static ItemStack createStack(StabRodItem item, int uses) {
         ItemStack stack = new ItemStack(item);
 
-        // Custom name
+        // Custom name — italic false so it doesn't look like a renamed item
         stack.set(DataComponentTypes.CUSTOM_NAME,
                 Text.literal("§6§lStab Shot Rod").styled(s -> s.withItalic(false)));
 
-        // NBT marker + use count
+        // NBT marker + use type
         NbtCompound nbt = new NbtCompound();
         nbt.putBoolean(STAB_ROD_KEY, true);
         nbt.putInt("UsesLeft", uses);
         stack.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(nbt));
 
         // Lore
-        List<Text> lore = uses == -1
-                ? List.of(Text.literal("§a§lInfinite uses"),
-                          Text.literal("§7Aim at a block and right-click to fire."))
-                : List.of(Text.literal("§61 use per rod — use it wisely."),
-                          Text.literal("§7Aim at a block and right-click to fire."));
+        List<Text> lore = (uses == -1)
+                ? List.of(
+                    Text.literal("§a§lInfinite uses"),
+                    Text.literal("§7Aim at a block and right-click to fire."),
+                    Text.literal("§cCannot be enchanted."))
+                : List.of(
+                    Text.literal("§61 use — breaks on fire"),
+                    Text.literal("§7Aim at a block and right-click to fire."),
+                    Text.literal("§cCannot be enchanted."));
         stack.set(DataComponentTypes.LORE, new LoreComponent(lore));
 
-        // Unbreakable — no durability bar shown
-        stack.set(DataComponentTypes.UNBREAKABLE, new UnbreakableComponent(false));
+        // Infinite rod = unbreakable (hidden tooltip). Finite rod = breakable (1 durability).
+        if (uses == -1) {
+            stack.set(DataComponentTypes.UNBREAKABLE, new UnbreakableComponent(false));
+        }
 
         return stack;
     }
@@ -168,4 +198,5 @@ public class StabRodItem extends FishingRodItem {
         if (data == null) return false;
         return data.copyNbt().getBoolean(STAB_ROD_KEY);
     }
-}
+            }
+            
