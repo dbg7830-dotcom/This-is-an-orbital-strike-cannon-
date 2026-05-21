@@ -2,6 +2,7 @@ package com.pvpbot.stabshot;
 
 import com.pvpbot.stabshot.command.StabShotCommand;
 import com.pvpbot.stabshot.item.StabRodItem;
+import com.pvpbot.stabshot.logic.PendingExplosionQueue;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.item.Item;
@@ -22,13 +23,13 @@ public class StabShotMod implements ModInitializer {
     public void onInitialize() {
         LOGGER.info("[StabShot] Initializing...");
 
+        // Register tick-based explosion scheduler
+        PendingExplosionQueue.register();
+
         STAB_ROD = Registry.register(
                 Registries.ITEM,
-                Identifier.of(MOD_ID, "stab_rod"),
-                new StabRodItem(
-                        new Item.Settings()
-                                .maxCount(1)
-                )
+                new Identifier(MOD_ID, "stab_rod"),
+                new StabRodItem(new Item.Settings().maxCount(1))
         );
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
