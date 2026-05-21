@@ -25,11 +25,10 @@ public class StabConfig {
 
     private static final String FILE_NAME = "stabshot.properties";
 
-    // Defaults
-    public static float explosionPower     = 9.5f;
-    public static int   columnHeight       = 8;
+    // Defaults — tuned to match OrbitalStrike+ feel (~4 hearts on full netherite)
+    public static float explosionPower     = 4.0f;
     public static int   columnStartAbove   = 2;
-    public static int   tickDelayBetween   = 2;
+    // columnHeight removed — column now runs from startAbove all the way to bedrock
 
     public static void load() {
         Path configDir  = FabricLoader.getInstance().getConfigDir();
@@ -44,14 +43,10 @@ public class StabConfig {
         Properties props = new Properties();
         try (Reader r = new FileReader(configFile.toFile())) {
             props.load(r);
-
             explosionPower   = parseFloat(props, "explosion_power",    explosionPower);
-            columnHeight     = parseInt  (props, "column_height",       columnHeight);
             columnStartAbove = parseInt  (props, "column_start_above",  columnStartAbove);
-            tickDelayBetween = parseInt  (props, "tick_delay_between",  tickDelayBetween);
-
-            StabShotMod.LOGGER.info("[StabShot] Config loaded — power={} height={} startAbove={} delay={}",
-                    explosionPower, columnHeight, columnStartAbove, tickDelayBetween);
+            StabShotMod.LOGGER.info("[StabShot] Config loaded — power={} startAbove={}",
+                    explosionPower, columnStartAbove);
         } catch (Exception e) {
             StabShotMod.LOGGER.error("[StabShot] Failed to load config, using defaults: {}", e.getMessage());
         }
@@ -63,24 +58,16 @@ public class StabConfig {
             w.write("# Edit these values and restart the server.\n");
             w.write("\n");
             w.write("# Power of each explosion blast. Vanilla TNT = 4.0\n");
-            w.write("# Higher = more damage and larger blast radius.\n");
-            w.write("# Recommended range: 6.0 - 12.0\n");
+            w.write("# 4.0 = ~4 hearts on full netherite prot 4 (matches OrbitalStrike+ feel)\n");
+            w.write("# Recommended range: 3.0 - 6.0\n");
             w.write("explosion_power=" + explosionPower + "\n");
             w.write("\n");
-            w.write("# Number of explosion blasts in the column.\n");
-            w.write("# Higher = taller column, more total damage.\n");
-            w.write("# Recommended range: 4 - 16\n");
-            w.write("column_height=" + columnHeight + "\n");
-            w.write("\n");
             w.write("# How many blocks above the aimed block the column starts.\n");
-            w.write("# 2 = hits head and body of a player at that position.\n");
+            w.write("# 2 = hits head and body of a player standing at that position.\n");
             w.write("# Recommended range: 1 - 4\n");
             w.write("column_start_above=" + columnStartAbove + "\n");
-            w.write("\n");
-            w.write("# Server ticks between each successive blast (20 ticks = 1 second).\n");
-            w.write("# Lower = faster chain, higher = slower more spread-out damage.\n");
-            w.write("# Recommended range: 1 - 5\n");
-            w.write("tick_delay_between=" + tickDelayBetween + "\n");
+            w.write("# Column runs from start_above all the way down to bedrock (y=1).\n");
+            w.write("# This is automatic and cannot be configured.\n");
         } catch (Exception e) {
             StabShotMod.LOGGER.error("[StabShot] Failed to write default config: {}", e.getMessage());
         }
