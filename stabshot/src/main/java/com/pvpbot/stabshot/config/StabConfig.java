@@ -8,27 +8,24 @@ import java.nio.file.*;
 import java.util.Properties;
 
 /**
- * StabConfig — reads/writes stabshot.properties in the server config folder.
+ * StabConfig â€” reads/writes stabshot.properties in the server config folder.
  *
- * File location: <server_root>/config/stabshot.properties
+ * File: <world>/config/stabshot.properties (auto-created with defaults on first start)
  *
- * Available settings:
- *   explosion_power    — power of each blast (default 9.5, vanilla TNT = 4.0)
- *   column_height      — how many TNT blasts in the column (default 8)
- *   column_start_above — blocks above aimed surface where column starts (default 2)
- *   tick_delay_between — server ticks between each blast (default 2)
- *
- * Edit the file while the server is stopped, then restart.
- * Invalid values fall back to defaults.
+ * Settings:
+ *   explosion_power    â€” power per blast. Default 2.5. Vanilla TNT = 4.0.
+ *   column_start_above â€” Y blocks above aimed surface. Default 1.
+ *   strike_radius      â€” grid half-width. 1 = 3x3, 2 = 5x5. Default 1.
+ *   destroy_terrain    â€” true = breaks blocks, false = entity damage only. Default false.
  */
 public class StabConfig {
 
     private static final String FILE_NAME = "stabshot.properties";
 
-    // Defaults — tuned to match OrbitalStrike+ feel (~4 hearts on full netherite)
-    public static float explosionPower     = 4.0f;
-    public static int   columnStartAbove   = 2;
-    // columnHeight removed — column now runs from startAbove all the way to bedrock
+    public static float   explosionPower   = 2.5f;
+    public static int     columnStartAbove = 1;
+    public static int     strikeRadius     = 1;
+    public static boolean destroyTerrain   = false;
 
     public static void load() {
         Path configDir  = FabricLoader.getInstance().getConfigDir();
@@ -43,10 +40,14 @@ public class StabConfig {
         Properties props = new Properties();
         try (Reader r = new FileReader(configFile.toFile())) {
             props.load(r);
-            explosionPower   = parseFloat(props, "explosion_power",    explosionPower);
-            columnStartAbove = parseInt  (props, "column_start_above",  columnStartAbove);
-            StabShotMod.LOGGER.info("[StabShot] Config loaded — power={} startAbove={}",
-                    explosionPower, columnStartAbove);
+            explosionPower   = parseFloat  (props, "explosion_power",    explosionPower);
+            columnStartAbove = parseInt    (props, "column_start_above",  columnStartAbove);
+            strikeRadius     = parseInt    (props, "strike_radius",       strikeRadius);
+            destroyTerrain   = parseBoolean(props, "destroy_terrain",     destroyTerrain);
+
+            StabShotMod.LOGGER.info(
+                    "[StabShot] Config loaded â€” power={} startAbove={} radius={} destroyTerrain={}",
+                    explosionPower, columnStartAbove, strikeRadius, destroyTerrain);
         } catch (Exception e) {
             StabShotMod.LOGGER.error("[StabShot] Failed to load config, using defaults: {}", e.getMessage());
         }
@@ -55,19 +56,25 @@ public class StabConfig {
     private static void writeDefaults(Path path) {
         try (Writer w = new FileWriter(path.toFile())) {
             w.write("# StabShot Configuration\n");
-            w.write("# Edit these values and restart the server.\n");
+            w.write("# Restart the server after editing.\n");
             w.write("\n");
-            w.write("# Power of each explosion blast. Vanilla TNT = 4.0\n");
-            w.write("# 4.0 = ~4 hearts on full netherite prot 4 (matches OrbitalStrike+ feel)\n");
-            w.write("# Recommended range: 3.0 - 6.0\n");
+            w.write("# Explosion power per blast.\n");
+            w.write("# Vanilla TNT = 4.0. Recommended: 2.0 - 3.5 for balanced PvP.\n");
             w.write("explosion_power=" + explosionPower + "\n");
             w.write("\n");
-            w.write("# How many blocks above the aimed block the column starts.\n");
-            w.write("# 2 = hits head and body of a player standing at that position.\n");
-            w.write("# Recommended range: 1 - 4\n");
+            w.write("# Blocks above the aimed surface where the strike fires.\n");
+            w.write("# 1 = hits body level. 2 = hits head level.\n");
             w.write("column_start_above=" + columnStartAbove + "\n");
-            w.write("# Column runs from start_above all the way down to bedrock (y=1).\n");
-            w.write("# This is automatic and cannot be configured.\n");
+            w.write("\n");
+            w.write("# Flat grid half-width in blocks.\n");
+            w.write("# 1 = 3x3 strike zone (9 blasts). 2 = 5x5 (25 blasts). 0 = single point.\n");
+            w.write("# Larger radius = wider area but more server load per strike.\n");
+            w.write("strike_radius=" + strikeRadius + "\n");
+            w.write("\n");
+            w.write("# Whether explosions break blocks.\n");
+            w.write("# false = entity damage only, terrain stays clean (recommended).\n");
+            w.write("# true  = breaks blocks like TNT.\n");
+            w.write("destroy_terrain=" + destroyTerrain + "\n");
         } catch (Exception e) {
             StabShotMod.LOGGER.error("[StabShot] Failed to write default config: {}", e.getMessage());
         }
@@ -80,6 +87,11 @@ public class StabConfig {
 
     private static int parseInt(Properties p, String key, int def) {
         try { return Integer.parseInt(p.getProperty(key, String.valueOf(def))); }
+        catch (Exception e) { return def; }
+    }
+
+    private static boolean parseBoolean(Properties p, String key, boolean def) {
+        try { return Boolean.parseBoolean(p.getProperty(key, String.valueOf(def))); }
         catch (Exception e) { return def; }
     }
 }
