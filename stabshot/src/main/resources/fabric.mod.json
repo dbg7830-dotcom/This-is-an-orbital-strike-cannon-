@@ -8,8 +8,8 @@
   "license": "MIT",
   "environment": "*",
   "entrypoints": {
-    "main": ["com.vulgar.stabshot.StabShotMod"],
-    "client": ["com.vulgarmc.stabshot.client.StabShotClient"]
+    "main": ["com.pvpbot.stabshot.StabShotMod"],
+    "client": ["com.pvpbot.stabshot.client.StabShotClient"]
   },
   "depends": {
     "fabricloader": ">=0.15.11",
