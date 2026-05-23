@@ -1,18 +1,21 @@
 {
   "schemaVersion": 1,
   "id": "stabshot",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "name": "StabShot",
-  "description": "Custom orbital stab shot — compressed TNT column from aimed block. Works with PvPBot.",
-  "authors": ["PvPBot Project"],
+  "description": "Orbital stab shot + Theme Song player. Works with PvPBot.",
+  "authors": ["VulgarMC"],
   "license": "MIT",
   "environment": "*",
   "entrypoints": {
-    "main": ["com.pvpbot.stabshot.StabShotMod"]
+    "main": ["com.vulgar.stabshot.StabShotMod"],
+    "client": ["com.vulgarmc.stabshot.client.StabShotClient"]
   },
   "depends": {
     "fabricloader": ">=0.15.11",
     "fabric-api": "*",
     "minecraft": "1.21.1"
   }
+}
+}
 }
