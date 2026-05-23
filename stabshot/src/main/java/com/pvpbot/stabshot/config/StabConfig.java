@@ -1,6 +1,7 @@
 package com.pvpbot.stabshot.config;
 
 import com.pvpbot.stabshot.StabShotMod;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.*;
@@ -8,15 +9,10 @@ import java.nio.file.*;
 import java.util.Properties;
 
 /**
- * StabConfig â€” reads/writes stabshot.properties in the server config folder.
+ * StabConfig — auto-reloading config for stabshot.properties.
  *
- * File: <world>/config/stabshot.properties (auto-created with defaults on first start)
- *
- * Settings:
- *   explosion_power    â€” power per blast. Default 2.5. Vanilla TNT = 4.0.
- *   column_start_above â€” Y blocks above aimed surface. Default 1.
- *   strike_radius      â€” grid half-width. 1 = 3x3, 2 = 5x5. Default 1.
- *   destroy_terrain    â€” true = breaks blocks, false = entity damage only. Default false.
+ * Hot-reload: checks file's last-modified timestamp every 40 ticks (2 seconds).
+ * If the file changed, reloads automatically — no restart needed.
  */
 public class StabConfig {
 
@@ -27,13 +23,66 @@ public class StabConfig {
     public static int     strikeRadius     = 1;
     public static boolean destroyTerrain   = false;
 
-    public static void load() {
-        Path configDir  = FabricLoader.getInstance().getConfigDir();
-        Path configFile = configDir.resolve(FILE_NAME);
+    private static Path        configFile;
+    private static long        lastModified   = -1;
+    private static int         reloadTick     = 0;
+    private static final int   RELOAD_INTERVAL = 40; // check every 2 seconds
+
+    // -------------------------------------------------------------------------
+    // Init — called from StabShotMod.onInitialize()
+    // -------------------------------------------------------------------------
+
+    public static void init() {
+        Path configDir = FabricLoader.getInstance().getConfigDir();
+        configFile = configDir.resolve(FILE_NAME);
 
         if (!Files.exists(configFile)) {
             writeDefaults(configFile);
             StabShotMod.LOGGER.info("[StabShot] Config created at {}", configFile);
+        } else {
+            load();
+        }
+
+        // Register tick-based hot-reload check
+        // Works in both singleplayer and dedicated server
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            reloadTick++;
+            if (reloadTick >= RELOAD_INTERVAL) {
+                reloadTick = 0;
+                checkReload();
+            }
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // Hot-reload check
+    // -------------------------------------------------------------------------
+
+    private static void checkReload() {
+        if (configFile == null || !Files.exists(configFile)) return;
+        try {
+            long modified = Files.getLastModifiedTime(configFile).toMillis();
+            if (modified != lastModified) {
+                lastModified = modified;
+                load();
+                StabShotMod.LOGGER.info("[StabShot] Config hot-reloaded.");
+            }
+        } catch (Exception e) {
+            StabShotMod.LOGGER.error("[StabShot] Hot-reload check failed: {}", e.getMessage());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Load
+    // -------------------------------------------------------------------------
+
+    public static void load() {
+        if (configFile == null) {
+            Path configDir = FabricLoader.getInstance().getConfigDir();
+            configFile = configDir.resolve(FILE_NAME);
+        }
+        if (!Files.exists(configFile)) {
+            writeDefaults(configFile);
             return;
         }
 
@@ -45,40 +94,47 @@ public class StabConfig {
             strikeRadius     = parseInt    (props, "strike_radius",       strikeRadius);
             destroyTerrain   = parseBoolean(props, "destroy_terrain",     destroyTerrain);
 
+            // Update lastModified so we don't immediately re-trigger
+            lastModified = Files.getLastModifiedTime(configFile).toMillis();
+
             StabShotMod.LOGGER.info(
-                    "[StabShot] Config loaded â€” power={} startAbove={} radius={} destroyTerrain={}",
-                    explosionPower, columnStartAbove, strikeRadius, destroyTerrain);
+                "[StabShot] Config — power={} startAbove={} radius={} destroyTerrain={}",
+                explosionPower, columnStartAbove, strikeRadius, destroyTerrain);
         } catch (Exception e) {
-            StabShotMod.LOGGER.error("[StabShot] Failed to load config, using defaults: {}", e.getMessage());
+            StabShotMod.LOGGER.error("[StabShot] Failed to load config: {}", e.getMessage());
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Write defaults
+    // -------------------------------------------------------------------------
 
     private static void writeDefaults(Path path) {
         try (Writer w = new FileWriter(path.toFile())) {
             w.write("# StabShot Configuration\n");
-            w.write("# Restart the server after editing.\n");
+            w.write("# Changes apply automatically — no restart needed.\n");
             w.write("\n");
-            w.write("# Explosion power per blast.\n");
-            w.write("# Vanilla TNT = 4.0. Recommended: 2.0 - 3.5 for balanced PvP.\n");
+            w.write("# Explosion power per blast. Vanilla TNT = 4.0\n");
+            w.write("# Recommended: 2.0 - 3.5 for balanced PvP.\n");
             w.write("explosion_power=" + explosionPower + "\n");
             w.write("\n");
             w.write("# Blocks above the aimed surface where the strike fires.\n");
-            w.write("# 1 = hits body level. 2 = hits head level.\n");
+            w.write("# 1 = body level. 2 = head level.\n");
             w.write("column_start_above=" + columnStartAbove + "\n");
             w.write("\n");
-            w.write("# Flat grid half-width in blocks.\n");
-            w.write("# 1 = 3x3 strike zone (9 blasts). 2 = 5x5 (25 blasts). 0 = single point.\n");
-            w.write("# Larger radius = wider area but more server load per strike.\n");
+            w.write("# Flat grid half-width. 0 = single point, 1 = 3x3, 2 = 5x5.\n");
             w.write("strike_radius=" + strikeRadius + "\n");
             w.write("\n");
-            w.write("# Whether explosions break blocks.\n");
-            w.write("# false = entity damage only, terrain stays clean (recommended).\n");
-            w.write("# true  = breaks blocks like TNT.\n");
+            w.write("# Block destruction. false = entity damage only (recommended).\n");
             w.write("destroy_terrain=" + destroyTerrain + "\n");
         } catch (Exception e) {
-            StabShotMod.LOGGER.error("[StabShot] Failed to write default config: {}", e.getMessage());
+            StabShotMod.LOGGER.error("[StabShot] Failed to write defaults: {}", e.getMessage());
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Parsers
+    // -------------------------------------------------------------------------
 
     private static float parseFloat(Properties p, String key, float def) {
         try { return Float.parseFloat(p.getProperty(key, String.valueOf(def))); }
