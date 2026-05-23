@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.pvpbot.stabshot.StabShotMod;
+import com.pvpbot.stabshot.config.StabConfig;
 import com.pvpbot.stabshot.item.StabRodItem;
 import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.item.ItemStack;
@@ -29,6 +30,21 @@ import static net.minecraft.server.command.CommandManager.literal;
 public class StabShotCommand {
 
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
+
+        // /stabshot reload — hot-reload config without restarting
+        dispatcher.register(literal("stabshot")
+            .requires(src -> src.hasPermissionLevel(2))
+            .then(literal("reload")
+                .executes(ctx -> {
+                    StabConfig.load();
+                    ctx.getSource().sendFeedback(() -> Text.literal(
+                            "§a✔ StabShot config reloaded — power=" + StabConfig.explosionPower
+                            + " radius=" + StabConfig.strikeRadius
+                            + " destroyTerrain=" + StabConfig.destroyTerrain), false);
+                    return 1;
+                })));
+
+        // /giveob command
         dispatcher.register(literal("giveob")
             .requires(src -> src.hasPermissionLevel(2))
 
