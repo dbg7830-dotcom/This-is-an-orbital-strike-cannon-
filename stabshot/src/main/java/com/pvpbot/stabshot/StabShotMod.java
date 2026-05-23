@@ -23,16 +23,12 @@ public class StabShotMod implements ModInitializer {
     public void onInitialize() {
         LOGGER.info("[StabShot] Initializing...");
 
-        // Load config immediately â€” SERVER_STARTING doesn't fire reliably in singleplayer
-        StabConfig.load();
-
-        STAB_ROD = Registry.register(
+        // Init config — creates file if missing, loads values, registers hot-reload watcher
+        StabConfig.init();
 
         STAB_ROD = Registry.register(
                 Registries.ITEM,
                 Identifier.of(MOD_ID, "stab_rod"),
-                // maxDamage(1) = 1 durability point â€” finite rods break after 1 use
-                // maxCount(1) = non-stackable
                 new StabRodItem(new Item.Settings().maxCount(1).maxDamage(1))
         );
 
