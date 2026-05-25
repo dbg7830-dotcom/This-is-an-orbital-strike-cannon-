@@ -5,7 +5,10 @@ import com.pvpbot.stabshot.themesong.ThemeSongCommand;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.resource.ResourcePackManager;
+import net.minecraft.resource.ResourcePackPosition;
 import net.minecraft.resource.ResourcePackProfile;
 import net.minecraft.resource.ResourcePackSource;
 import net.minecraft.resource.ResourceType;
@@ -23,29 +26,27 @@ public class StabShotClient implements ClientModInitializer {
         // Register /ts play, /ts stop, /ts list
         ThemeSongCommand.register();
 
-        // Register our dynamic song pack with Minecraft's resource pack manager.
-        // Done here (before world load) so it's available during the first resource reload.
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client != null) {
-            injectSongPack(client);
-        }
-        // Also register for when client is available later (safety net)
-        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents
-                .CLIENT_STARTED.register(this::injectSongPack);
+        // Inject song pack once the client is ready
+        ClientLifecycleEvents.CLIENT_STARTED.register(this::injectSongPack);
     }
 
     private void injectSongPack(MinecraftClient client) {
-        ResourcePackProfile profile = ResourcePackProfile.create(
-                "stabshot_songs",
-                Text.literal("StabShot Songs"),
-                true,  // required = always active
-                id -> SongResourcePack.INSTANCE,
-                ResourceType.CLIENT_RESOURCES,
-                ResourcePackProfile.InsertionPosition.TOP,
-                ResourcePackSource.BUILTIN
-        );
-        if (profile != null) {
-            client.getResourcePackManager().addPack(profile);
-        }
+        ResourcePackManager manager = client.getResourcePackManager();
+
+        // Register our provider so the pack shows up on every resource reload
+        manager.registerProvider(profileAdder -> {
+            ResourcePackProfile profile = ResourcePackProfile.create(
+                    SongResourcePack.INSTANCE.getInfo(),
+                    info -> SongResourcePack.INSTANCE,
+                    ResourceType.CLIENT_RESOURCES,
+                    new ResourcePackPosition(true, ResourcePackProfile.InsertionPosition.TOP, false)
+            );
+            if (profile != null) {
+                profileAdder.accept(profile);
+            }
+        });
+
+        // Force an immediate reload so the pack is live without restarting
+        client.reloadResourcesConcurrently();
     }
 }
