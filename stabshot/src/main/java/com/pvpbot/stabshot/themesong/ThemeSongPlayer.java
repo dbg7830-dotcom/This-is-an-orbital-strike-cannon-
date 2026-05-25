@@ -3,98 +3,99 @@ package com.pvpbot.stabshot.themesong;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.sound.AbstractSoundInstance;
+import net.minecraft.client.sound.SoundInstance;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvent;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.math.random.Random;
 
-import javax.sound.sampled.*;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
- * ThemeSongPlayer — client-side WAV audio player with loop support.
+ * ThemeSongPlayer v3 — uses Minecraft's SoundManager (OpenAL/LWJGL).
  *
- * Songs folder: .minecraft/config/stabshot/songs/
- * Format: WAV files (16-bit PCM recommended for best compatibility).
- * Convert MP3s with: ffmpeg -i song.mp3 song.wav
- *                or: any online MP3→WAV converter.
+ * Works on ALL launchers including Android-based (Zalith, Pojav) because
+ * it uses Minecraft's own audio stack, not javax.sound.sampled.
  *
- * Commands: /ts play <name>   (no .wav extension needed)
- *           /ts stop
+ * Song format: OGG Vorbis (.ogg)
+ * Convert:     ffmpeg -i song.mp3 -c:a libvorbis -q:a 4 song.ogg
+ *              or any online MP3→OGG converter.
+ *
+ * Songs folder: .minecraft/config/stabshot/songs/  (auto-created on first /ts command)
+ *
+ * Flow:
+ *  1. /ts play <name> → registers OGG file path in SongResourcePack
+ *  2. Triggers SoundManager.reloadSounds() so it picks up the new sounds.json entry
+ *  3. Plays a looping AbstractSoundInstance with NONE attenuation (full volume everywhere)
  */
 @Environment(EnvType.CLIENT)
 public class ThemeSongPlayer {
 
-    private static final String SONGS_FOLDER = "stabshot/songs";
+    public static final String SONGS_FOLDER = "stabshot/songs";
 
-    private static Clip     currentClip   = null;
-    private static String   currentSong   = null;
-    private static boolean  playing       = false;
-
-    // Volume: 0.0f = silent, 1.0f = max. 0.85f feels natural in-game
-    private static final float VOLUME = 0.85f;
+    private static LoopingSoundInstance currentInstance = null;
+    private static String               currentSong     = null;
+    private static boolean              playing         = false;
 
     // -------------------------------------------------------------------------
     // Play
     // -------------------------------------------------------------------------
 
-    /**
-     * Starts playing the named song on loop.
-     * @param name Song name without extension (e.g. "mytheme" for mytheme.wav)
-     * @return Error message string if failed, null if success.
-     */
     public static String play(String name) {
-        stop(); // stop any currently playing song first
+        stop();
 
+        // Auto-create folder
         Path songsDir = getSongsDir();
         if (!Files.exists(songsDir)) {
-            try { Files.createDirectories(songsDir); } catch (Exception ignored) {}
+            try { Files.createDirectories(songsDir); }
+            catch (Exception e) { return "Could not create songs folder: " + e.getMessage(); }
         }
 
-        // Try exact name first, then with .wav appended
-        File file = songsDir.resolve(name + ".wav").toFile();
-        if (!file.exists()) file = songsDir.resolve(name).toFile();
-        if (!file.exists()) {
-            return "Song not found: §f" + name + ".wav §cin §f" + songsDir;
+        // Find .ogg file
+        Path oggFile = songsDir.resolve(name + ".ogg");
+        if (!Files.exists(oggFile)) {
+            return "§cSong not found: §f" + name + ".ogg\n"
+                 + "§7Put .ogg files in: §f" + songsDir + "\n"
+                 + "§7Available: §f" + String.join(", ", getSongNames());
         }
 
-        try {
-            AudioInputStream audioStream = AudioSystem.getAudioInputStream(file);
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client == null) return "Client not ready.";
 
-            // Convert to PCM_SIGNED if needed (required for Clip playback)
-            AudioFormat baseFormat = audioStream.getFormat();
-            AudioFormat targetFormat = new AudioFormat(
-                    AudioFormat.Encoding.PCM_SIGNED,
-                    baseFormat.getSampleRate(),
-                    16,
-                    baseFormat.getChannels(),
-                    baseFormat.getChannels() * 2,
-                    baseFormat.getSampleRate(),
-                    false
-            );
-            if (!baseFormat.equals(targetFormat)) {
-                audioStream = AudioSystem.getAudioInputStream(targetFormat, audioStream);
+        // Build a stable sound ID from the song name
+        String safeName = name.toLowerCase().replaceAll("[^a-z0-9_]", "_");
+        Identifier soundId = Identifier.of("stabshot", "song/" + safeName);
+
+        // Register the OGG file in our resource pack so SoundManager can find it
+        SongResourcePack.registerSong(soundId, oggFile);
+
+        // Reload sound definitions only (lightweight — doesn't freeze game)
+        client.execute(() -> {
+            try {
+                client.getSoundManager().reloadSounds();
+
+                // Play after a 1-tick delay to let the reload complete
+                client.execute(() -> {
+                    currentInstance = new LoopingSoundInstance(soundId);
+                    client.getSoundManager().play(currentInstance);
+                    currentSong = name;
+                    playing     = true;
+                });
+            } catch (Exception e) {
+                if (client.player != null) {
+                    client.player.sendMessage(
+                        net.minecraft.text.Text.literal("§c[StabShot] Audio error: " + e.getMessage()),
+                        false);
+                }
             }
+        });
 
-            currentClip = AudioSystem.getClip();
-            currentClip.open(audioStream);
-
-            // Set volume
-            setVolume(currentClip, VOLUME);
-
-            // Loop indefinitely
-            currentClip.loop(Clip.LOOP_CONTINUOUSLY);
-            currentClip.start();
-
-            currentSong = name;
-            playing     = true;
-            return null; // success
-
-        } catch (UnsupportedAudioFileException e) {
-            return "Unsupported format. Use WAV (PCM). Convert with ffmpeg: ffmpeg -i song.mp3 song.wav";
-        } catch (Exception e) {
-            return "Playback error: " + e.getMessage();
-        }
+        return null; // success (async)
     }
 
     // -------------------------------------------------------------------------
@@ -102,60 +103,57 @@ public class ThemeSongPlayer {
     // -------------------------------------------------------------------------
 
     public static void stop() {
-        if (currentClip != null) {
-            currentClip.stop();
-            currentClip.close();
-            currentClip = null;
+        if (currentInstance == null) { playing = false; currentSong = null; return; }
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client != null) {
+            final LoopingSoundInstance inst = currentInstance;
+            client.execute(() -> client.getSoundManager().stop(inst));
         }
-        currentSong = null;
-        playing     = false;
+        currentInstance = null;
+        currentSong     = null;
+        playing         = false;
     }
 
     // -------------------------------------------------------------------------
-    // Song list — for tab completion
+    // Song list (for tab-complete)
     // -------------------------------------------------------------------------
 
-    /**
-     * Returns a list of song names (without .wav extension) from the songs folder.
-     * Used for tab-completion in /ts play.
-     */
     public static List<String> getSongNames() {
         List<String> names = new ArrayList<>();
-        Path songsDir = getSongsDir();
-        if (!Files.exists(songsDir)) return names;
-        File[] files = songsDir.toFile().listFiles(
-                f -> f.isFile() && f.getName().toLowerCase().endsWith(".wav"));
+        Path dir = getSongsDir();
+        if (!Files.exists(dir)) return names;
+        File[] files = dir.toFile().listFiles(
+                f -> f.isFile() && f.getName().toLowerCase().endsWith(".ogg"));
         if (files == null) return names;
         for (File f : files) {
-            String name = f.getName();
-            // Strip .wav extension for display
-            names.add(name.substring(0, name.length() - 4));
+            String n = f.getName();
+            names.add(n.substring(0, n.length() - 4));
         }
+        Collections.sort(names);
         return names;
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
+    public static boolean isPlaying()      { return playing; }
+    public static String  getCurrentSong() { return currentSong; }
 
-    public static boolean isPlaying()       { return playing; }
-    public static String  getCurrentSong()  { return currentSong; }
-
-    private static Path getSongsDir() {
+    public static Path getSongsDir() {
         return FabricLoader.getInstance().getConfigDir().resolve(SONGS_FOLDER);
     }
 
-    private static void setVolume(Clip clip, float volume) {
-        try {
-            FloatControl gainControl =
-                    (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
-            // Convert linear 0.0-1.0 to decibels
-            float dB = (float) (Math.log10(Math.max(volume, 0.0001f)) * 20.0);
-            // Clamp to valid range
-            dB = Math.max(gainControl.getMinimum(), Math.min(gainControl.getMaximum(), dB));
-            gainControl.setValue(dB);
-        } catch (Exception ignored) {
-            // Some audio lines don't support gain control — play at default volume
+    // -------------------------------------------------------------------------
+    // Looping sound instance — NONE attenuation = full volume everywhere
+    // -------------------------------------------------------------------------
+
+    @Environment(EnvType.CLIENT)
+    static class LoopingSoundInstance extends AbstractSoundInstance {
+        LoopingSoundInstance(Identifier id) {
+            super(SoundEvent.of(id), SoundCategory.MASTER, Random.create());
+            this.volume          = 1.0f;
+            this.pitch           = 1.0f;
+            this.repeat          = true;
+            this.repeatDelay     = 0;
+            this.relative        = true; // relative to listener = no distance fade
+            this.attenuationType = SoundInstance.AttenuationType.NONE;
         }
     }
-                                            }
+}
