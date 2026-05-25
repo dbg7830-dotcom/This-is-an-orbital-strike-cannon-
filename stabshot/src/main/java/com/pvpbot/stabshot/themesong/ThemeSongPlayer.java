@@ -6,8 +6,9 @@ import net.fabricmc.fabric.api.client.sound.v1.FabricSoundInstance;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.sound.*;
+import net.minecraft.registry.Registries;
 import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvents;
+import net.minecraft.sound.SoundEvent;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.random.Random;
 
@@ -19,16 +20,20 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * ThemeSongPlayer v5 — streams OGG directly from disk via FabricSoundInstance.
- * No resource pack reload. No sounds.json needed. Works on PC + Android (Zalith/Pojav).
+ * ThemeSongPlayer v6 — streams OGG directly from disk via FabricSoundInstance.
+ * Anchored to stabshot:dummy which is declared in sounds.json with stream=true.
+ * No resource reload needed. Works on PC + Android (Zalith/Pojav).
  *
- * Song format: OGG Vorbis (.ogg), mono recommended for best compatibility.
+ * Song format: OGG Vorbis (.ogg), mono recommended.
  * Songs folder: .minecraft/config/stabshot/songs/
  */
 @Environment(EnvType.CLIENT)
 public class ThemeSongPlayer {
 
     public static final String SONGS_FOLDER = "stabshot/songs";
+
+    // Matches the entry in src/main/resources/assets/stabshot/sounds.json
+    private static final Identifier DUMMY_ID = Identifier.of("stabshot", "dummy");
 
     private static DiskSoundInstance currentInstance = null;
     private static String            currentSong     = null;
@@ -75,7 +80,7 @@ public class ThemeSongPlayer {
             }
         });
 
-        return null; // success
+        return null;
     }
 
     // -------------------------------------------------------------------------
@@ -121,9 +126,7 @@ public class ThemeSongPlayer {
     }
 
     // -------------------------------------------------------------------------
-    // Sound instance that reads OGG bytes directly from disk.
-    // Uses FabricSoundInstance.getAudioStream() to bypass the resource pack
-    // pipeline entirely — no sounds.json, no reload needed.
+    // Sound instance — reads OGG directly from disk, bypasses resource pack
     // -------------------------------------------------------------------------
 
     @Environment(EnvType.CLIENT)
@@ -132,23 +135,16 @@ public class ThemeSongPlayer {
         private final Path oggPath;
 
         DiskSoundInstance(Path oggPath) {
-            // Anchor to any valid vanilla sound — INTENTIONALLY_EMPTY is perfect.
-            // FabricSoundInstance.getAudioStream() replaces the actual data source.
-            super(SoundEvents.INTENTIONALLY_EMPTY, SoundCategory.MASTER, Random.create());
+            super(SoundEvent.of(DUMMY_ID), SoundCategory.MASTER, Random.create());
             this.oggPath         = oggPath;
             this.volume          = 1.0f;
             this.pitch           = 1.0f;
             this.repeat          = true;
             this.repeatDelay     = 0;
-            this.relative        = true;   // no positional attenuation
+            this.relative        = true;
             this.attenuationType = SoundInstance.AttenuationType.NONE;
         }
 
-        /**
-         * Override the audio data source: open the OGG file directly from disk
-         * and wrap it in a RepeatingAudioStream so it loops seamlessly.
-         * This completely bypasses the resource pack — no reload required.
-         */
         @Override
         public CompletableFuture<AudioStream> getAudioStream(SoundLoader loader,
                                                               Identifier id,
