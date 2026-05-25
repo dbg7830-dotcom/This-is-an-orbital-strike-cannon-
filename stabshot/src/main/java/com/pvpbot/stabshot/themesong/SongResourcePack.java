@@ -3,6 +3,7 @@ package com.pvpbot.stabshot.themesong;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.resource.*;
+import net.minecraft.resource.metadata.ResourceMetadataReader;
 import net.minecraft.util.Identifier;
 
 import org.jetbrains.annotations.Nullable;
