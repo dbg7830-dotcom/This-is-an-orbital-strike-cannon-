@@ -28,8 +28,6 @@ public class StabShotClient implements ClientModInitializer {
     private void injectSongPack(MinecraftClient client) {
         ResourcePackManager manager = client.getResourcePackManager();
 
-        // Build our provider — PackFactory has two abstract methods so must be
-        // an anonymous class, not a lambda.
         ResourcePackProvider provider = profileAdder -> {
             ResourcePackProfile.PackFactory factory = new ResourcePackProfile.PackFactory() {
                 @Override
@@ -58,19 +56,28 @@ public class StabShotClient implements ClientModInitializer {
             }
         };
 
-        // ResourcePackManager.providers is private final — inject via reflection.
+        // The field is named "providers" in yarn but obfuscated at runtime.
+        // Find it by type (Set) since ResourcePackManager has exactly one Set field.
         try {
-            Field providersField = ResourcePackManager.class.getDeclaredField("providers");
+            Field providersField = null;
+            for (Field f : ResourcePackManager.class.getDeclaredFields()) {
+                if (Set.class.isAssignableFrom(f.getType())) {
+                    providersField = f;
+                    break;
+                }
+            }
+            if (providersField == null) {
+                throw new RuntimeException("StabShot: could not find providers field in ResourcePackManager");
+            }
             providersField.setAccessible(true);
             @SuppressWarnings("unchecked")
             Set<ResourcePackProvider> providers =
                     (Set<ResourcePackProvider>) providersField.get(manager);
             providers.add(provider);
-        } catch (Exception e) {
+        } catch (IllegalAccessException e) {
             throw new RuntimeException("StabShot: failed to inject resource pack provider", e);
         }
 
-        // Rescan so the profile is picked up immediately.
         manager.scanPacks();
         manager.enable("stabshot_songs");
     }
