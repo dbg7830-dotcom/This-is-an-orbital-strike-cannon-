@@ -5,7 +5,7 @@ import net.fabricmc.api.Environment;
 import net.minecraft.resource.*;
 import net.minecraft.util.Identifier;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
