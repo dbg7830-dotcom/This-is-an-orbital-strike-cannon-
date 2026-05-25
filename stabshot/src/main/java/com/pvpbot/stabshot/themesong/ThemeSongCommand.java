@@ -1,6 +1,5 @@
 package com.pvpbot.stabshot.themesong;
 
-import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.api.EnvType;
@@ -13,17 +12,14 @@ import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.arg
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
 /**
- * ThemeSongCommand — registers /ts play <name> and /ts stop.
- *
- * CLIENT-SIDE ONLY. Uses Fabric's ClientCommandRegistrationCallback.
- * Works in singleplayer and on any server without the mod installed server-side.
- * Tab-completes song names from .minecraft/config/stabshot/songs/*.wav
+ * ThemeSongCommand — /ts play, /ts stop, /ts list.
+ * Client-side only. Works on any server, no server-side mod needed.
  */
 @Environment(EnvType.CLIENT)
 public class ThemeSongCommand {
 
     public static void register() {
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
             dispatcher.register(literal("ts")
                 .then(literal("play")
                     .then(argument("song", StringArgumentType.greedyString())
@@ -36,8 +32,8 @@ public class ThemeSongCommand {
                     .executes(ThemeSongCommand::execStop))
                 .then(literal("list")
                     .executes(ThemeSongCommand::execList))
-            );
-        });
+            )
+        );
     }
 
     private static int execPlay(CommandContext<FabricClientCommandSource> ctx) {
@@ -67,13 +63,13 @@ public class ThemeSongCommand {
         var songs = ThemeSongPlayer.getSongNames();
         if (songs.isEmpty()) {
             ctx.getSource().sendFeedback(Text.literal(
-                    "§7No songs found. Add .wav files to §f.minecraft/config/stabshot/songs/"));
+                    "§7No songs found. Add §f.ogg §7files to: §f"
+                    + ThemeSongPlayer.getSongsDir()));
             return 1;
         }
         ctx.getSource().sendFeedback(Text.literal("§6§lSongs (" + songs.size() + "):"));
         songs.forEach(s -> ctx.getSource().sendFeedback(Text.literal("§7 • §f" + s)));
-        ctx.getSource().sendFeedback(Text.literal(
-                "§7Usage: §f/ts play <name>"));
+        ctx.getSource().sendFeedback(Text.literal("§7Play with: §f/ts play <name>"));
         return 1;
     }
 }
