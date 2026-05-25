@@ -29,6 +29,13 @@ public class SongResourcePack implements ResourcePack {
     /** The single global instance registered with Minecraft. */
     public static final SongResourcePack INSTANCE = new SongResourcePack();
 
+    private static final ResourcePackInfo INFO = new ResourcePackInfo(
+            "stabshot_songs",
+            false,
+            ResourcePackSource.BUILTIN,
+            java.util.Optional.empty()
+    );
+
     private SongResourcePack() {}
 
     /** Call this before playing a song to make it available to the sound system. */
@@ -39,6 +46,11 @@ public class SongResourcePack implements ResourcePack {
     // -------------------------------------------------------------------------
     // ResourcePack impl
     // -------------------------------------------------------------------------
+
+    @Override
+    public ResourcePackInfo getInfo() {
+        return INFO;
+    }
 
     @Override
     public @Nullable InputSupplier<InputStream> openRoot(String... segments) {
@@ -98,8 +110,7 @@ public class SongResourcePack implements ResourcePack {
         return null;
     }
 
-    @Override public String getName()  { return "StabShot Songs"; }
-    @Override public void  close()     {}
+    @Override public void close() {}
 
     // -------------------------------------------------------------------------
     // Dynamic sounds.json builder
