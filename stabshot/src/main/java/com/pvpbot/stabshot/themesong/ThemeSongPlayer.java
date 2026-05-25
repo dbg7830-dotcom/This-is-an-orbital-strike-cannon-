@@ -17,21 +17,14 @@ import java.nio.file.Path;
 import java.util.*;
 
 /**
- * ThemeSongPlayer v3 — uses Minecraft's SoundManager (OpenAL/LWJGL).
+ * ThemeSongPlayer v4 — registers the OGG into the resource pack and
+ * performs a full resource reload before playing.
  *
- * Works on ALL launchers including Android-based (Zalith, Pojav) because
- * it uses Minecraft's own audio stack, not javax.sound.sampled.
+ * Android-safe: waits for the reload CompletableFuture to complete before
+ * calling play(), so the SoundManager actually has the sound definition loaded.
  *
  * Song format: OGG Vorbis (.ogg)
- * Convert:     ffmpeg -i song.mp3 -c:a libvorbis -q:a 4 song.ogg
- *              or any online MP3→OGG converter.
- *
- * Songs folder: .minecraft/config/stabshot/songs/  (auto-created on first /ts command)
- *
- * Flow:
- *  1. /ts play <name> → registers OGG file path in SongResourcePack
- *  2. Triggers SoundManager.reloadSounds() so it picks up the new sounds.json entry
- *  3. Plays a looping AbstractSoundInstance with NONE attenuation (full volume everywhere)
+ * Songs folder: .minecraft/config/stabshot/songs/
  */
 @Environment(EnvType.CLIENT)
 public class ThemeSongPlayer {
@@ -49,14 +42,12 @@ public class ThemeSongPlayer {
     public static String play(String name) {
         stop();
 
-        // Auto-create folder
         Path songsDir = getSongsDir();
         if (!Files.exists(songsDir)) {
             try { Files.createDirectories(songsDir); }
             catch (Exception e) { return "Could not create songs folder: " + e.getMessage(); }
         }
 
-        // Find .ogg file
         Path oggFile = songsDir.resolve(name + ".ogg");
         if (!Files.exists(oggFile)) {
             return "§cSong not found: §f" + name + ".ogg\n"
@@ -67,32 +58,41 @@ public class ThemeSongPlayer {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client == null) return "Client not ready.";
 
-        // Build a stable sound ID from the song name
         String safeName = name.toLowerCase().replaceAll("[^a-z0-9_]", "_");
         Identifier soundId = Identifier.of("stabshot", "song/" + safeName);
 
-        // Register the OGG file in our resource pack so SoundManager can find it
+        // Register the OGG with our dynamic resource pack
         SongResourcePack.registerSong(soundId, oggFile);
 
-        // Reload sound definitions only (lightweight — doesn't freeze game)
-        client.execute(() -> {
-            try {
-                client.getSoundManager().reloadSounds();
+        // Capture for lambda
+        final String capturedName = name;
 
-                // Play after a 1-tick delay to let the reload complete
+        client.execute(() -> {
+            // reloadResources returns a CompletableFuture — chain play() onto it
+            // so we only play once the reload is fully done and the sound is registered.
+            client.reloadResources().thenRunAsync(() -> {
                 client.execute(() -> {
-                    currentInstance = new LoopingSoundInstance(soundId);
-                    client.getSoundManager().play(currentInstance);
-                    currentSong = name;
-                    playing     = true;
+                    try {
+                        currentInstance = new LoopingSoundInstance(soundId);
+                        client.getSoundManager().play(currentInstance);
+                        currentSong = capturedName;
+                        playing     = true;
+                    } catch (Exception e) {
+                        if (client.player != null) {
+                            client.player.sendMessage(
+                                net.minecraft.text.Text.literal("§c[StabShot] Play error: " + e.getMessage()),
+                                false);
+                        }
+                    }
                 });
-            } catch (Exception e) {
+            }).exceptionally(ex -> {
                 if (client.player != null) {
-                    client.player.sendMessage(
-                        net.minecraft.text.Text.literal("§c[StabShot] Audio error: " + e.getMessage()),
-                        false);
+                    client.execute(() -> client.player.sendMessage(
+                        net.minecraft.text.Text.literal("§c[StabShot] Reload error: " + ex.getMessage()),
+                        false));
                 }
-            }
+                return null;
+            });
         });
 
         return null; // success (async)
@@ -152,7 +152,7 @@ public class ThemeSongPlayer {
             this.pitch           = 1.0f;
             this.repeat          = true;
             this.repeatDelay     = 0;
-            this.relative        = true; // relative to listener = no distance fade
+            this.relative        = true;
             this.attenuationType = SoundInstance.AttenuationType.NONE;
         }
     }
