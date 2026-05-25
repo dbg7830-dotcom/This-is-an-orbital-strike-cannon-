@@ -2,28 +2,27 @@ package com.pvpbot.stabshot.themesong;
 
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
+import net.fabricmc.fabric.api.client.sound.v1.FabricSoundInstance;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.sound.AbstractSoundInstance;
-import net.minecraft.client.sound.SoundInstance;
+import net.minecraft.client.sound.*;
 import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvent;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.random.Random;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 /**
- * ThemeSongPlayer v4 — registers the OGG into the resource pack and
- * performs a full resource reload before playing.
+ * ThemeSongPlayer v5 — streams OGG directly from disk via FabricSoundInstance.
+ * No resource pack reload. No sounds.json needed. Works on PC + Android (Zalith/Pojav).
  *
- * Android-safe: waits for the reload CompletableFuture to complete before
- * calling play(), so the SoundManager actually has the sound definition loaded.
- *
- * Song format: OGG Vorbis (.ogg)
+ * Song format: OGG Vorbis (.ogg), mono recommended for best compatibility.
  * Songs folder: .minecraft/config/stabshot/songs/
  */
 @Environment(EnvType.CLIENT)
@@ -31,9 +30,9 @@ public class ThemeSongPlayer {
 
     public static final String SONGS_FOLDER = "stabshot/songs";
 
-    private static LoopingSoundInstance currentInstance = null;
-    private static String               currentSong     = null;
-    private static boolean              playing         = false;
+    private static DiskSoundInstance currentInstance = null;
+    private static String            currentSong     = null;
+    private static boolean           playing         = false;
 
     // -------------------------------------------------------------------------
     // Play
@@ -58,44 +57,25 @@ public class ThemeSongPlayer {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client == null) return "Client not ready.";
 
-        String safeName = name.toLowerCase().replaceAll("[^a-z0-9_]", "_");
-        Identifier soundId = Identifier.of("stabshot", "song/" + safeName);
-
-        // Register the OGG with our dynamic resource pack
-        SongResourcePack.registerSong(soundId, oggFile);
-
-        // Capture for lambda
         final String capturedName = name;
+        final Path   capturedFile = oggFile;
 
         client.execute(() -> {
-            // reloadResources returns a CompletableFuture — chain play() onto it
-            // so we only play once the reload is fully done and the sound is registered.
-            client.reloadResources().thenRunAsync(() -> {
-                client.execute(() -> {
-                    try {
-                        currentInstance = new LoopingSoundInstance(soundId);
-                        client.getSoundManager().play(currentInstance);
-                        currentSong = capturedName;
-                        playing     = true;
-                    } catch (Exception e) {
-                        if (client.player != null) {
-                            client.player.sendMessage(
-                                net.minecraft.text.Text.literal("§c[StabShot] Play error: " + e.getMessage()),
-                                false);
-                        }
-                    }
-                });
-            }).exceptionally(ex -> {
+            try {
+                currentInstance = new DiskSoundInstance(capturedFile);
+                client.getSoundManager().play(currentInstance);
+                currentSong = capturedName;
+                playing     = true;
+            } catch (Exception e) {
                 if (client.player != null) {
-                    client.execute(() -> client.player.sendMessage(
-                        net.minecraft.text.Text.literal("§c[StabShot] Reload error: " + ex.getMessage()),
-                        false));
+                    client.player.sendMessage(
+                        net.minecraft.text.Text.literal("§c[StabShot] Play error: " + e.getMessage()),
+                        false);
                 }
-                return null;
-            });
+            }
         });
 
-        return null; // success (async)
+        return null; // success
     }
 
     // -------------------------------------------------------------------------
@@ -106,7 +86,7 @@ public class ThemeSongPlayer {
         if (currentInstance == null) { playing = false; currentSong = null; return; }
         MinecraftClient client = MinecraftClient.getInstance();
         if (client != null) {
-            final LoopingSoundInstance inst = currentInstance;
+            final DiskSoundInstance inst = currentInstance;
             client.execute(() -> client.getSoundManager().stop(inst));
         }
         currentInstance = null;
@@ -115,7 +95,7 @@ public class ThemeSongPlayer {
     }
 
     // -------------------------------------------------------------------------
-    // Song list (for tab-complete)
+    // Song list
     // -------------------------------------------------------------------------
 
     public static List<String> getSongNames() {
@@ -141,19 +121,49 @@ public class ThemeSongPlayer {
     }
 
     // -------------------------------------------------------------------------
-    // Looping sound instance — NONE attenuation = full volume everywhere
+    // Sound instance that reads OGG bytes directly from disk.
+    // Uses FabricSoundInstance.getAudioStream() to bypass the resource pack
+    // pipeline entirely — no sounds.json, no reload needed.
     // -------------------------------------------------------------------------
 
     @Environment(EnvType.CLIENT)
-    static class LoopingSoundInstance extends AbstractSoundInstance {
-        LoopingSoundInstance(Identifier id) {
-            super(SoundEvent.of(id), SoundCategory.MASTER, Random.create());
+    static class DiskSoundInstance extends AbstractSoundInstance implements FabricSoundInstance {
+
+        private final Path oggPath;
+
+        DiskSoundInstance(Path oggPath) {
+            // Anchor to any valid vanilla sound — INTENTIONALLY_EMPTY is perfect.
+            // FabricSoundInstance.getAudioStream() replaces the actual data source.
+            super(SoundEvents.INTENTIONALLY_EMPTY, SoundCategory.MASTER, Random.create());
+            this.oggPath         = oggPath;
             this.volume          = 1.0f;
             this.pitch           = 1.0f;
             this.repeat          = true;
             this.repeatDelay     = 0;
-            this.relative        = true;
+            this.relative        = true;   // no positional attenuation
             this.attenuationType = SoundInstance.AttenuationType.NONE;
+        }
+
+        /**
+         * Override the audio data source: open the OGG file directly from disk
+         * and wrap it in a RepeatingAudioStream so it loops seamlessly.
+         * This completely bypasses the resource pack — no reload required.
+         */
+        @Override
+        public CompletableFuture<AudioStream> getAudioStream(SoundLoader loader,
+                                                              Identifier id,
+                                                              boolean repeatInstantly) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return new RepeatingAudioStream(
+                            OggAudioStream::new,
+                            Files.newInputStream(oggPath)
+                    );
+                } catch (IOException e) {
+                    throw new RuntimeException(
+                        "StabShot: failed to open OGG: " + oggPath.getFileName(), e);
+                }
+            });
         }
     }
 }
