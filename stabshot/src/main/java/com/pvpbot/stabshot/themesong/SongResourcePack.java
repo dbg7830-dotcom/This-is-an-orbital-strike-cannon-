@@ -4,6 +4,7 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.resource.*;
 import net.minecraft.resource.metadata.ResourceMetadataReader;
+import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
 import org.jetbrains.annotations.Nullable;
@@ -16,9 +17,6 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * SongResourcePack — a lightweight ResourcePack that serves OGG files and
  * a dynamic sounds.json to Minecraft's SoundManager at reload time.
- *
- * Registered once at startup via StabShotClient. Songs are added at runtime
- * via registerSong() without needing another pack reload.
  */
 @Environment(EnvType.CLIENT)
 public class SongResourcePack implements ResourcePack {
@@ -31,9 +29,9 @@ public class SongResourcePack implements ResourcePack {
 
     private static final ResourcePackInfo INFO = new ResourcePackInfo(
             "stabshot_songs",
-            false,
+            Text.literal("StabShot Songs"),
             ResourcePackSource.BUILTIN,
-            java.util.Optional.empty()
+            Optional.empty()
     );
 
     private SongResourcePack() {}
@@ -41,6 +39,10 @@ public class SongResourcePack implements ResourcePack {
     /** Call this before playing a song to make it available to the sound system. */
     public static void registerSong(Identifier soundId, Path oggFile) {
         SONGS.put(soundId.getPath(), oggFile);
+    }
+
+    public static ResourcePackInfo getPackInfo() {
+        return INFO;
     }
 
     // -------------------------------------------------------------------------
@@ -64,12 +66,10 @@ public class SongResourcePack implements ResourcePack {
 
         String path = id.getPath();
 
-        // sounds.json — serve dynamically
         if ("sounds.json".equals(path)) {
-            return () -> buildSoundsJson();
+            return SongResourcePack::buildSoundsJson;
         }
 
-        // OGG files — path is "sounds/song/name.ogg"
         if (path.startsWith("sounds/") && path.endsWith(".ogg")) {
             String songPath = path.substring("sounds/".length(), path.length() - 4);
             Path oggFile = SONGS.get(songPath);
@@ -87,14 +87,12 @@ public class SongResourcePack implements ResourcePack {
         if (type != ResourceType.CLIENT_RESOURCES) return;
         if (!"stabshot".equals(namespace)) return;
 
-        // Advertise sounds.json
         Identifier soundsJson = Identifier.of("stabshot", "sounds.json");
-        consumer.accept(soundsJson, () -> buildSoundsJson());
+        consumer.accept(soundsJson, SongResourcePack::buildSoundsJson);
 
-        // Advertise each OGG file
         for (Map.Entry<String, Path> entry : SONGS.entrySet()) {
-            String songPath  = entry.getKey(); // e.g. "song/mysong"
-            Path   oggFile   = entry.getValue();
+            String songPath = entry.getKey();
+            Path   oggFile  = entry.getValue();
             Identifier resId = Identifier.of("stabshot", "sounds/" + songPath + ".ogg");
             consumer.accept(resId, () -> new FileInputStream(oggFile.toFile()));
         }
@@ -110,14 +108,14 @@ public class SongResourcePack implements ResourcePack {
         return null;
     }
 
-    @Override public void close() {}
+    @Override
+    public void close() {}
 
     // -------------------------------------------------------------------------
     // Dynamic sounds.json builder
     // -------------------------------------------------------------------------
 
     private static InputStream buildSoundsJson() {
-        // e.g.: {"song/mysong": {"sounds": [{"name": "stabshot:song/mysong", "stream": true}]}}
         StringBuilder sb = new StringBuilder("{");
         boolean first = true;
         for (String songPath : SONGS.keySet()) {
