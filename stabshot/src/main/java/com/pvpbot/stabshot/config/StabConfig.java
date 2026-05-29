@@ -17,40 +17,22 @@ public class StabConfig {
 
     private static final String FILE_NAME = "stabshot.properties";
 
-    // -------------------------------------------------------------------------
-    // Config fields
-    // -------------------------------------------------------------------------
-
-    /** Explosion power per blast. Vanilla TNT = 4.0. Default 2.5. */
+    /** Resistance budget/depth. Vanilla TNT = 4.0. Default 2.5. */
     public static float   explosionPower   = 2.5f;
 
-    /** Blocks above aimed surface where strike fires. Default 1. */
+    /** Blocks above each found surface where strike visuals begin. Default 1. */
     public static int     columnStartAbove = 1;
 
-    /** Grid half-width. 0=single, 1=3x3, 2=5x5. Default 1. */
+    /** Exact X/Z half-width. 0=single, 1=3x3, 2=5x5. Default 1. */
     public static int     strikeRadius     = 1;
 
-    /** false = entity damage only (no block break). Default false. */
+    /** false = entity damage + visuals only (no block break). Default false. */
     public static boolean destroyTerrain   = false;
-
-    /** ORBITAL: how many blocks above target TNT spawns. Default 30. */
-    public static int     spawnHeight      = 30;
-
-    /** true = use legacy instant-explosion mode. false = orbital falling TNT. */
-    public static boolean useLegacyMode    = false;
-
-    // -------------------------------------------------------------------------
-    // Internal
-    // -------------------------------------------------------------------------
 
     private static Path configFile;
     private static long lastModified   = -1;
     private static int  reloadTick     = 0;
     private static final int RELOAD_INTERVAL = 40;
-
-    // -------------------------------------------------------------------------
-    // Init — called from StabShotMod.onInitialize()
-    // -------------------------------------------------------------------------
 
     public static void init() {
         Path configDir = FabricLoader.getInstance().getConfigDir();
@@ -72,10 +54,6 @@ public class StabConfig {
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Hot-reload
-    // -------------------------------------------------------------------------
-
     private static void checkReload() {
         if (configFile == null || !Files.exists(configFile)) return;
         try {
@@ -90,10 +68,6 @@ public class StabConfig {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Load
-    // -------------------------------------------------------------------------
-
     public static void load() {
         if (configFile == null) {
             configFile = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
@@ -107,20 +81,13 @@ public class StabConfig {
             columnStartAbove = parseInt    (props, "column_start_above",  columnStartAbove);
             strikeRadius     = parseInt    (props, "strike_radius",       strikeRadius);
             destroyTerrain   = parseBoolean(props, "destroy_terrain",     destroyTerrain);
-            spawnHeight      = parseInt    (props, "spawn_height",        spawnHeight);
-            useLegacyMode    = parseBoolean(props, "use_legacy_mode",     useLegacyMode);
             lastModified = Files.getLastModifiedTime(configFile).toMillis();
-            StabShotMod.LOGGER.info("[StabShot] Config — power={} radius={} mode={} spawnHeight={}",
-                    explosionPower, strikeRadius,
-                    useLegacyMode ? "LEGACY" : "ORBITAL", spawnHeight);
+            StabShotMod.LOGGER.info("[StabShot] Config — power={} radius={} destroyTerrain={}",
+                    explosionPower, strikeRadius, destroyTerrain);
         } catch (Exception e) {
             StabShotMod.LOGGER.error("[StabShot] Failed to load config: {}", e.getMessage());
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Save — called by /stabshot set commands to persist changes
-    // -------------------------------------------------------------------------
 
     public static void save() {
         if (configFile == null) return;
@@ -128,20 +95,15 @@ public class StabConfig {
             w.write("# StabShot Configuration\n");
             w.write("# Changes apply automatically every 2 seconds.\n");
             w.write("# Or use /stabshot set <key> <value> to change in-game.\n\n");
-            w.write("# ORBITAL: TNT falls from above (smooth, like OrbitalStrike+)\n");
-            w.write("# LEGACY:  Instant flat-grid explosion\n");
-            w.write("use_legacy_mode="    + useLegacyMode    + "\n\n");
-            w.write("# Explosion power per blast. Vanilla TNT = 4.0\n");
+            w.write("# Enhanced legacy-only stab shot. No v2/orbital mode and no visible TNT.\n\n");
+            w.write("# Resistance budget/depth. Vanilla TNT = 4.0\n");
             w.write("explosion_power="    + explosionPower   + "\n\n");
-            w.write("# Blocks above aimed surface where strike fires (1=body, 2=head)\n");
+            w.write("# Blocks above each found surface where strike visuals begin (1=body, 2=head)\n");
             w.write("column_start_above=" + columnStartAbove + "\n\n");
-            w.write("# Grid half-width. 0=single point, 1=3x3, 2=5x5\n");
+            w.write("# Exact X/Z half-width. 0=single point, 1=3x3, 2=5x5; nothing breaks outside this footprint\n");
             w.write("strike_radius="      + strikeRadius     + "\n\n");
-            w.write("# ORBITAL only: blocks above target where TNT spawns\n");
-            w.write("spawn_height="       + spawnHeight      + "\n\n");
-            w.write("# true=breaks blocks, false=entity damage only (recommended)\n");
+            w.write("# true=breaks blocks with precise bounded columns, false=entity damage + visuals only (recommended)\n");
             w.write("destroy_terrain="    + destroyTerrain   + "\n");
-            // Update lastModified so hot-reload doesn't immediately re-trigger
             lastModified = Files.getLastModifiedTime(configFile).toMillis();
         } catch (Exception e) {
             StabShotMod.LOGGER.error("[StabShot] Failed to save config: {}", e.getMessage());
@@ -150,12 +112,8 @@ public class StabConfig {
 
     private static void writeDefaults(Path path) {
         configFile = path;
-        save(); // reuse save() to write defaults
+        save();
     }
-
-    // -------------------------------------------------------------------------
-    // Parsers
-    // -------------------------------------------------------------------------
 
     private static float parseFloat(Properties p, String key, float def) {
         try { return Float.parseFloat(p.getProperty(key, String.valueOf(def))); }

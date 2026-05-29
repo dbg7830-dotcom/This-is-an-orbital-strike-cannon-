@@ -21,11 +21,9 @@ import static net.minecraft.server.command.CommandManager.literal;
 /**
  * StabShotCommand — all /stabshot and /giveob commands.
  *
- * /stabshot mode orbital|legacy    — switch strike mode
- * /stabshot set power <float>      — explosion power
- * /stabshot set radius <int>       — grid radius
- * /stabshot set startabove <int>   — blocks above aimed surface
- * /stabshot set spawnheight <int>  — ORBITAL: TNT spawn height
+ * /stabshot set power <float>      — resistance budget/depth
+ * /stabshot set radius <int>       — exact bounded X/Z radius
+ * /stabshot set startabove <int>   — blocks above each found surface
  * /stabshot set terrain <bool>     — block destruction on/off
  * /stabshot reload                 — reload config from file
  * /stabshot info                   — show current config
@@ -36,17 +34,8 @@ import static net.minecraft.server.command.CommandManager.literal;
 public class StabShotCommand {
 
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
-
-        // /stabshot — config and mode commands
         dispatcher.register(literal("stabshot")
             .requires(src -> src.hasPermissionLevel(2))
-
-            // Mode switch
-            .then(literal("mode")
-                .then(literal("orbital").executes(ctx -> execMode(ctx, false)))
-                .then(literal("legacy") .executes(ctx -> execMode(ctx, true))))
-
-            // Set individual config values
             .then(literal("set")
                 .then(literal("power")
                     .then(argument("value", FloatArgumentType.floatArg(0.1f, 20.0f))
@@ -60,21 +49,14 @@ public class StabShotCommand {
                     .then(argument("value", IntegerArgumentType.integer(0, 10))
                         .executes(ctx -> execSetStartAbove(ctx,
                                 IntegerArgumentType.getInteger(ctx, "value")))))
-                .then(literal("spawnheight")
-                    .then(argument("value", IntegerArgumentType.integer(5, 100))
-                        .executes(ctx -> execSetSpawnHeight(ctx,
-                                IntegerArgumentType.getInteger(ctx, "value")))))
                 .then(literal("terrain")
                     .then(argument("value", BoolArgumentType.bool())
                         .executes(ctx -> execSetTerrain(ctx,
                                 BoolArgumentType.getBool(ctx, "value"))))))
-
-            // Reload and info
             .then(literal("reload").executes(StabShotCommand::execReload))
             .then(literal("info")  .executes(StabShotCommand::execInfo))
         );
 
-        // /giveob
         dispatcher.register(literal("giveob")
             .requires(src -> src.hasPermissionLevel(2))
             .then(argument("amount", IntegerArgumentType.integer(1, 64))
@@ -94,23 +76,6 @@ public class StabShotCommand {
         );
     }
 
-    // =========================================================================
-    // Mode
-    // =========================================================================
-
-    private static int execMode(CommandContext<ServerCommandSource> ctx, boolean legacy) {
-        StabConfig.useLegacyMode = legacy;
-        StabConfig.save();
-        String mode = legacy ? "§eLEGACY §7(instant explosion)" : "§aORBITAL §7(falling TNT)";
-        ctx.getSource().sendFeedback(() ->
-                Text.literal("§6[StabShot] §7Mode → " + mode), false);
-        return 1;
-    }
-
-    // =========================================================================
-    // Set commands — each updates the field and saves to disk immediately
-    // =========================================================================
-
     private static int execSetPower(CommandContext<ServerCommandSource> ctx, float value) {
         StabConfig.explosionPower = value;
         StabConfig.save();
@@ -125,7 +90,7 @@ public class StabShotCommand {
         int total = (value * 2 + 1) * (value * 2 + 1);
         ctx.getSource().sendFeedback(() ->
                 Text.literal("§6[StabShot] §7strike_radius → §f" + value
-                        + " §7(" + total + " blasts)"), false);
+                        + " §7(exact " + total + " column footprint)"), false);
         return 1;
     }
 
@@ -134,15 +99,6 @@ public class StabShotCommand {
         StabConfig.save();
         ctx.getSource().sendFeedback(() ->
                 Text.literal("§6[StabShot] §7column_start_above → §f" + value), false);
-        return 1;
-    }
-
-    private static int execSetSpawnHeight(CommandContext<ServerCommandSource> ctx, int value) {
-        StabConfig.spawnHeight = value;
-        StabConfig.save();
-        ctx.getSource().sendFeedback(() ->
-                Text.literal("§6[StabShot] §7spawn_height → §f" + value
-                        + " §7(ORBITAL mode only)"), false);
         return 1;
     }
 
@@ -156,10 +112,6 @@ public class StabShotCommand {
         return 1;
     }
 
-    // =========================================================================
-    // Reload + Info
-    // =========================================================================
-
     private static int execReload(CommandContext<ServerCommandSource> ctx) {
         StabConfig.load();
         ctx.getSource().sendFeedback(() ->
@@ -169,23 +121,16 @@ public class StabShotCommand {
     }
 
     private static int execInfo(CommandContext<ServerCommandSource> ctx) {
-        String mode = StabConfig.useLegacyMode ? "§eLEGACY" : "§aORBITAL";
         ctx.getSource().sendFeedback(() -> Text.literal(
-                "§6§l── StabShot Config ──\n"
-                + "§7mode:           " + mode + "\n"
+                "§6§l── StabShot Enhanced Legacy Config ──\n"
                 + "§7explosion_power:    §f" + StabConfig.explosionPower + "\n"
                 + "§7strike_radius:      §f" + StabConfig.strikeRadius
-                        + " §7(" + (StabConfig.strikeRadius*2+1)*(StabConfig.strikeRadius*2+1) + " blasts)\n"
+                        + " §7(exact " + (StabConfig.strikeRadius*2+1)*(StabConfig.strikeRadius*2+1) + " columns)\n"
                 + "§7column_start_above: §f" + StabConfig.columnStartAbove + "\n"
-                + "§7spawn_height:       §f" + StabConfig.spawnHeight + " §7(orbital only)\n"
                 + "§7destroy_terrain:    §f" + StabConfig.destroyTerrain
         ), false);
         return 1;
     }
-
-    // =========================================================================
-    // /giveob
-    // =========================================================================
 
     private static int execGiveFinite(CommandContext<ServerCommandSource> ctx,
                                        int amount, ServerPlayerEntity targetArg)
