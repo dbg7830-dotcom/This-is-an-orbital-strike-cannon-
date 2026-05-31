@@ -18,7 +18,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * StabLogic — two custom no-visible-TNT strike modes.
+ * StabLogic â€” two custom no-visible-TNT strike modes.
  *
  * WEMMBU (default): finds the highest real block in the configured footprint,
  * starts the blast there, then cuts a square shaft down to one safe layer above
@@ -37,7 +37,7 @@ public class StabLogic {
     private static final int WEMMBU_STOP_ABOVE_BOTTOM = 6;
     private static final float UNBREAKABLE_RESISTANCE = 1_000.0f;
 
-    // Shared scheduler for fire-delay tasks — daemon threads won't block server shutdown
+    // Shared scheduler for fire-delay tasks â€” daemon threads won't block server shutdown
     private static final ScheduledExecutorService SCHEDULER =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "stabshot-delay");
@@ -46,7 +46,7 @@ public class StabLogic {
             });
 
     // -------------------------------------------------------------------------
-    // Entry point — delay wrapper
+    // Entry point â€” delay wrapper
     // -------------------------------------------------------------------------
 
     public static void summonStab(ServerWorld world, int x, int y, int z) {
@@ -150,7 +150,7 @@ public class StabLogic {
     }
 
     // -------------------------------------------------------------------------
-    // Particle methods — accurate visual matching the screenshots
+    // Particle methods â€” accurate visual matching the screenshots
     // -------------------------------------------------------------------------
 
     /**
@@ -163,7 +163,7 @@ public class StabLogic {
                                                     int radius) {
         double spread = radius + 0.5;
 
-        // Primary ring: EXPLOSION_EMITTER at impact surface — dense, fitted to shaft
+        // Primary ring: EXPLOSION_EMITTER at impact surface â€” dense, fitted to shaft
         int emitterCount = Math.max(8, (radius * 2 + 1) * (radius * 2 + 1));
         world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
                 centerX + 0.5, topY + 1.0, centerZ + 0.5,
@@ -171,7 +171,7 @@ public class StabLogic {
                 spread, 0.5, spread,
                 0.0); // speed=0 so they bloom in place
 
-        // Secondary ring slightly above — gives the "layered orbital" look
+        // Secondary ring slightly above â€” gives the "layered orbital" look
         int secondaryCount = Math.max(4, emitterCount / 2);
         world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
                 centerX + 0.5, topY + 3.5, centerZ + 0.5,
@@ -202,7 +202,7 @@ public class StabLogic {
     private static void spawnLegacyColumnParticles(ServerWorld world,
                                                     int x, int y, int z,
                                                     double edgeFalloff) {
-        // One EXPLOSION_EMITTER per column (scaled) — this matches the screenshot's
+        // One EXPLOSION_EMITTER per column (scaled) â€” this matches the screenshot's
         // evenly-spaced large explosions across the strike footprint
         if (edgeFalloff > 0.5) {
             world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
@@ -222,57 +222,51 @@ public class StabLogic {
     }
 
     // -------------------------------------------------------------------------
-    // Terrain carving (unchanged logic, preserved exactly)
+    // Terrain carving â€” clean square shaft with structured ledges
     // -------------------------------------------------------------------------
 
+    /**
+     * Carves a clean square shaft matching the reference screenshots:
+     * - Walls are flat and vertical â€” no random jagged hangings
+     * - Every LEDGE_INTERVAL layers, one row of blocks is left along the
+     *   inner wall face to form a walkable ledge the player can catch onto
+     * - The ledge is only 1 block deep (the outermost ring of the shaft)
+     *   so the center stays fully open all the way down
+     */
     private static void carveWemmbuShaft(ServerWorld world,
                                           int centerX, int centerZ,
                                           int radius, int topY, int bottomY) {
+        // How many layers between each ledge ring. 8 gives roughly the spacing
+        // seen in the reference screenshots (visible ledges every ~8 blocks).
+        final int LEDGE_INTERVAL = 8;
+
         for (int y = topY; y >= bottomY; y--) {
-            double verticalProgress = (topY == bottomY) ? 0.0
-                    : (topY - y) / (double) (topY - bottomY);
+            // Is this y-level a ledge band? Ledges sit at fixed intervals
+            // measured from the top of the shaft downward.
+            int depthFromTop = topY - y;
+            boolean isLedgeY = (radius > 0) && (depthFromTop % LEDGE_INTERVAL == 0) && (depthFromTop > 0);
 
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     int x = centerX + dx;
                     int z = centerZ + dz;
+
+                    // Determine if this column position is on the outer ring
+                    // (Chebyshev distance == radius means it's on the wall face)
+                    boolean isOuterRing = Math.max(Math.abs(dx), Math.abs(dz)) == radius;
+
+                    // On a ledge y-level, keep the outer ring blocks so the
+                    // player has something to land on / grab onto
+                    if (isLedgeY && isOuterRing) continue;
+
                     BlockPos pos = new BlockPos(x, y, z);
                     BlockState state = world.getBlockState(pos);
                     if (!canAffect(state)) continue;
 
-                    double edgeFalloff = getEdgeFalloff(dx, dz, radius);
-                    double ledgeNoise  = getStableNoise(x, y, z);
-                    boolean keepGripBlock = shouldKeepWemmbuGripBlock(
-                            radius, edgeFalloff, verticalProgress, ledgeNoise);
-                    if (!keepGripBlock && canWemmbuBreak(state, edgeFalloff, verticalProgress, ledgeNoise)) {
-                        world.breakBlock(pos, false);
-                    }
+                    world.breakBlock(pos, false);
                 }
             }
         }
-    }
-
-    private static boolean shouldKeepWemmbuGripBlock(int radius,
-                                                      double edgeFalloff,
-                                                      double verticalProgress,
-                                                      double noise) {
-        if (radius <= 0) return false;
-        boolean outerWall  = edgeFalloff < 0.86;
-        boolean ledgeBand  = verticalProgress > 0.08 && verticalProgress < 0.92;
-        return outerWall && ledgeBand && noise > 0.66;
-    }
-
-    private static boolean canWemmbuBreak(BlockState state,
-                                           double edgeFalloff,
-                                           double verticalProgress,
-                                           double noise) {
-        float resistance = state.getBlock().getBlastResistance();
-        if (resistance >= UNBREAKABLE_RESISTANCE) return false;
-
-        double compressedForce = 85.0 * edgeFalloff;
-        compressedForce *= 1.0 - (verticalProgress * 0.18);
-        compressedForce *= 0.92 + (noise * 0.16);
-        return resistance <= compressedForce;
     }
 
     private static void carveLegacyColumn(ServerWorld world,
@@ -282,19 +276,15 @@ public class StabLogic {
         int maxDepth = Math.max(1, StabConfig.blastDepth);
         BlockPos.Mutable mutable = new BlockPos.Mutable(x, impactY, z);
 
+        // Legacy mode keeps its per-column approach but uses clean depth-based
+        // force rather than noise, so craters are consistent not chaotic
         for (int y = impactY; y >= surfaceY - maxDepth; y--) {
             mutable.set(x, y, z);
             BlockState state = world.getBlockState(mutable);
             if (!canAffect(state)) continue;
 
-            double progress   = (impactY - y) / (double) (maxDepth + StabConfig.columnStartAbove + 1);
-            double noise      = getStableNoise(x, y, z);
-            double ledgeChance = 0.20 + (progress * 0.18);
-            boolean keepGripBlock = edgeFalloff < 0.88 && noise < ledgeChance;
-            if (keepGripBlock) continue;
-
-            double force = 28.0 * edgeFalloff * (1.0 - progress * 0.55);
-            force *= 0.90 + (noise * 0.20);
+            double progress = (impactY - y) / (double) (maxDepth + StabConfig.columnStartAbove + 1);
+            double force    = 60.0 * edgeFalloff * (1.0 - progress * 0.6);
             if (state.getBlock().getBlastResistance() <= force) {
                 world.breakBlock(mutable, false);
             }
@@ -321,12 +311,12 @@ public class StabLogic {
                         event, SoundCategory.MASTER, volume, pitch);
             }
         } catch (Exception ignored) {
-            // Custom sound not found — vanilla fallback covers audio
+            // Custom sound not found â€” vanilla fallback covers audio
         }
     }
 
     /**
-     * Layered vanilla explosion bursts — always audible at high volume regardless
+     * Layered vanilla explosion bursts â€” always audible at high volume regardless
      * of whether custom .ogg files are present.
      */
     private static void playLayeredVanillaExplosion(ServerWorld world,
@@ -417,9 +407,5 @@ public class StabLogic {
         return !state.isAir() && state.getBlock().getBlastResistance() < UNBREAKABLE_RESISTANCE;
     }
 
-    private static double getStableNoise(int x, int y, int z) {
-        long seed = x * 3129871L ^ z * 116129781L ^ y * 42317861L;
-        seed = seed * seed * 42317861L + seed * 11L;
-        return ((seed >> 16) & 1023L) / 1023.0;
-    }
+
 }
