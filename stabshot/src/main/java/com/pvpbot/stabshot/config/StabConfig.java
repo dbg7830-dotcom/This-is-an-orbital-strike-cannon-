@@ -38,9 +38,15 @@ public class StabConfig {
     /** false = entity damage + visuals only; true = custom terrain carving. */
     public static boolean destroyTerrain = true;
 
+    /**
+     * Delay in ticks before the strike detonates after being fired.
+     * 1 tick = 50 ms at 20 TPS. Default 20 = 1 second. 0 = instant.
+     */
+    public static int fireDelayTicks = 20;
+
     private static Path configFile;
     private static long lastModified = -1;
-    private static int reloadTick = 0;
+    private static int  reloadTick   = 0;
     private static final int RELOAD_INTERVAL = 40;
 
     public static void init() {
@@ -86,15 +92,17 @@ public class StabConfig {
         Properties props = new Properties();
         try (Reader r = new FileReader(configFile.toFile())) {
             props.load(r);
-            mode = normalizeMode(props.getProperty("mode", mode));
-            explosionPower = parseFloat(props, "explosion_power", explosionPower);
+            mode            = normalizeMode(props.getProperty("mode", mode));
+            explosionPower  = parseFloat(props, "explosion_power", explosionPower);
             columnStartAbove = parseInt(props, "column_start_above", columnStartAbove);
-            strikeRadius = parseInt(props, "strike_radius", strikeRadius);
-            blastDepth = parseInt(props, "blast_depth", blastDepth);
-            destroyTerrain = parseBoolean(props, "destroy_terrain", destroyTerrain);
-            lastModified = Files.getLastModifiedTime(configFile).toMillis();
-            StabShotMod.LOGGER.info("[StabShot] Config — mode={} damage={} radius={} blastDepth={} destroyTerrain={}",
-                    mode, explosionPower, strikeRadius, blastDepth, destroyTerrain);
+            strikeRadius    = parseInt(props, "strike_radius", strikeRadius);
+            blastDepth      = parseInt(props, "blast_depth", blastDepth);
+            destroyTerrain  = parseBoolean(props, "destroy_terrain", destroyTerrain);
+            fireDelayTicks  = parseInt(props, "fire_delay_ticks", fireDelayTicks);
+            lastModified    = Files.getLastModifiedTime(configFile).toMillis();
+            StabShotMod.LOGGER.info(
+                    "[StabShot] Config — mode={} damage={} radius={} blastDepth={} destroyTerrain={} fireDelayTicks={}",
+                    mode, explosionPower, strikeRadius, blastDepth, destroyTerrain, fireDelayTicks);
         } catch (Exception e) {
             StabShotMod.LOGGER.error("[StabShot] Failed to load config: {}", e.getMessage());
         }
@@ -103,7 +111,7 @@ public class StabConfig {
     public static void save() {
         if (configFile == null) return;
         try (Writer w = new FileWriter(configFile.toFile())) {
-            w.write("# StabShot Configuration\n");
+            w.write("# StabShot (Vulgar's OSC) Configuration\n");
             w.write("# Changes apply automatically every 2 seconds.\n");
             w.write("# Or use /stabshot and /pb commands to change in-game.\n\n");
             w.write("# wemmbu = default vertical shaft from highest block down near bedrock.\n");
@@ -118,7 +126,9 @@ public class StabConfig {
             w.write("# Legacy only: max vertical terrain carve depth in blocks.\n");
             w.write("blast_depth=" + blastDepth + "\n\n");
             w.write("# true=custom terrain carving, false=entity damage + explosion particles only.\n");
-            w.write("destroy_terrain=" + destroyTerrain + "\n");
+            w.write("destroy_terrain=" + destroyTerrain + "\n\n");
+            w.write("# Delay in ticks before the strike detonates after firing (20 ticks = 1 second, 0 = instant).\n");
+            w.write("fire_delay_ticks=" + fireDelayTicks + "\n");
             lastModified = Files.getLastModifiedTime(configFile).toMillis();
         } catch (Exception e) {
             StabShotMod.LOGGER.error("[StabShot] Failed to save config: {}", e.getMessage());
@@ -156,4 +166,3 @@ public class StabConfig {
         catch (Exception e) { return def; }
     }
 }
-

@@ -27,6 +27,7 @@ import static net.minecraft.server.command.CommandManager.literal;
  * /stabshot set startabove <int>   — legacy visual start height
  * /stabshot set depth <int>        — legacy terrain blast depth
  * /stabshot set terrain <bool>     — custom block carving on/off
+ * /stabshot set delay <int>        — fire delay in ticks (0=instant, 20=1s)
  * /stabshot reload                 — reload config from file
  * /stabshot info                   — show current config
  *
@@ -85,7 +86,11 @@ public class StabShotCommand {
                 .then(literal("terrain")
                     .then(argument("value", BoolArgumentType.bool())
                         .executes(ctx -> execSetTerrain(ctx,
-                                BoolArgumentType.getBool(ctx, "value"))))))
+                                BoolArgumentType.getBool(ctx, "value")))))
+                .then(literal("delay")
+                    .then(argument("value", IntegerArgumentType.integer(0, 200))
+                        .executes(ctx -> execSetDelay(ctx,
+                                IntegerArgumentType.getInteger(ctx, "value"))))))
             .then(literal("reload").executes(StabShotCommand::execReload))
             .then(literal("info").executes(StabShotCommand::execInfo));
     }
@@ -143,6 +148,17 @@ public class StabShotCommand {
         return 1;
     }
 
+    private static int execSetDelay(CommandContext<ServerCommandSource> ctx, int value) {
+        StabConfig.fireDelayTicks = value;
+        StabConfig.save();
+        double seconds = value / 20.0;
+        ctx.getSource().sendFeedback(() ->
+                Text.literal("§6[StabShot] §7fire_delay_ticks → §f" + value
+                        + " §7(" + String.format("%.2f", seconds) + "s) — applies to both modes"),
+                false);
+        return 1;
+    }
+
     private static int execReload(CommandContext<ServerCommandSource> ctx) {
         StabConfig.load();
         ctx.getSource().sendFeedback(() ->
@@ -152,15 +168,18 @@ public class StabShotCommand {
     }
 
     private static int execInfo(CommandContext<ServerCommandSource> ctx) {
+        double delaySeconds = StabConfig.fireDelayTicks / 20.0;
         ctx.getSource().sendFeedback(() -> Text.literal(
-                "§6§l── StabShot Config ──\n"
+                "§6§l── Vulgar's OSC Config ──\n"
                 + "§7mode:                §f" + StabConfig.mode + "\n"
                 + "§7custom_damage_power: §f" + StabConfig.explosionPower + "\n"
                 + "§7strike_radius:       §f" + StabConfig.strikeRadius
                         + " §7(exact " + (StabConfig.strikeRadius*2+1)*(StabConfig.strikeRadius*2+1) + " columns)\n"
                 + "§7column_start_above:  §f" + StabConfig.columnStartAbove + " §7(legacy)\n"
                 + "§7blast_depth:         §f" + StabConfig.blastDepth + " §7(legacy only)\n"
-                + "§7destroy_terrain:     §f" + StabConfig.destroyTerrain
+                + "§7destroy_terrain:     §f" + StabConfig.destroyTerrain + "\n"
+                + "§7fire_delay_ticks:    §f" + StabConfig.fireDelayTicks
+                        + " §7(" + String.format("%.2f", delaySeconds) + "s)"
         ), false);
         return 1;
     }
@@ -212,4 +231,3 @@ public class StabShotCommand {
         }
     }
 }
-

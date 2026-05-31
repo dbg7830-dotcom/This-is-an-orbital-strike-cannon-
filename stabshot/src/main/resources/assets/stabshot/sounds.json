@@ -1,10 +1,20 @@
 {
-  "dummy": {
+  "explosion1": {
     "sounds": [
       {
-        "name": "fabric-sound-api-v1:empty",
-        "stream": true
+        "name": "stabshot:explosion1",
+        "stream": false
       }
-    ]
+    ],
+    "subtitle": "Orbital Strike Impact"
+  },
+  "explosion2": {
+    "sounds": [
+      {
+        "name": "stabshot:explosion2",
+        "stream": false
+      }
+    ],
+    "subtitle": "Orbital Strike Fired"
   }
 }

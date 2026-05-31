@@ -1,11 +1,12 @@
 {
   "schemaVersion": 1,
   "id": "stabshot",
-  "version": "1.5.0",
-  "name": "StabShot",
-  "description": "Orbital stab shot + Theme Song player. Works with PvPBot.",
+  "version": "2.0.0",
+  "name": "Vulgar's OSC",
+  "description": "Orbital Strike Cannon with cinematic explosions, custom sounds, and configurable fire delay. Part of PvPBot.",
   "authors": ["VulgarMC"],
   "license": "MIT",
+  "icon": "assets/stabshot/icon.png",
   "environment": "*",
   "entrypoints": {
     "main": ["com.pvpbot.stabshot.StabShotMod"],
