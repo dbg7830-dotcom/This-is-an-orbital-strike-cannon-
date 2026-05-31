@@ -3,8 +3,10 @@ package com.pvpbot.stabshot;
 import com.pvpbot.stabshot.command.StabShotCommand;
 import com.pvpbot.stabshot.config.StabConfig;
 import com.pvpbot.stabshot.item.StabRodItem;
+import com.pvpbot.stabshot.logic.StabLogic;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.item.Item;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;
@@ -21,9 +23,8 @@ public class StabShotMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        LOGGER.info("[StabShot] Initializing...");
+        LOGGER.info("[VulgarLog] Initializing Vulgar's OSC...");
 
-        // Init config — creates file if missing, loads values, registers hot-reload watcher
         StabConfig.init();
 
         STAB_ROD = Registry.register(
@@ -31,6 +32,9 @@ public class StabShotMod implements ModInitializer {
                 Identifier.of(MOD_ID, "stab_rod"),
                 new StabRodItem(new Item.Settings().maxCount(1).maxDamage(1))
         );
+
+        // Tick-based delay queue â€” fires strikes on the server thread, exact tick timing
+        ServerTickEvents.END_SERVER_TICK.register(StabLogic::onServerTick);
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 StabShotCommand.register(dispatcher));
