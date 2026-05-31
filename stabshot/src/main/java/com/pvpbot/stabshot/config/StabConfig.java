@@ -11,27 +11,36 @@ import java.util.Properties;
 /**
  * StabConfig — auto-reloading config for stabshot.properties.
  * Hot-reload: checks last-modified every 40 ticks (2 seconds).
- * All values also editable in-game via /stabshot set <key> <value>.
+ * All values also editable in-game via /stabshot or /pb commands.
  */
 public class StabConfig {
 
     private static final String FILE_NAME = "stabshot.properties";
 
-    /** Resistance budget/depth. Vanilla TNT = 4.0. Default 2.5. */
-    public static float   explosionPower   = 2.5f;
+    public static final String MODE_WEMMBU = "wemmbu";
+    public static final String MODE_LEGACY = "legacy";
 
-    /** Blocks above each found surface where strike visuals begin. Default 1. */
-    public static int     columnStartAbove = 1;
+    /** Default mode: vertical WEMMBU shaft from highest local block downward. */
+    public static String mode = MODE_WEMMBU;
 
-    /** Exact X/Z half-width. 0=single, 1=3x3, 2=5x5. Default 1. */
-    public static int     strikeRadius     = 1;
+    /** Entity damage strength for the mod's custom strike damage only. */
+    public static float explosionPower = 2.5f;
 
-    /** false = entity damage + visuals only (no block break). Default false. */
-    public static boolean destroyTerrain   = false;
+    /** Blocks above each found surface where legacy visuals begin. */
+    public static int columnStartAbove = 1;
+
+    /** Exact X/Z half-width. 0=single, 1=3x3, 2=5x5. */
+    public static int strikeRadius = 1;
+
+    /** Legacy only: max vertical terrain carve depth in blocks. */
+    public static int blastDepth = 18;
+
+    /** false = entity damage + visuals only; true = custom terrain carving. */
+    public static boolean destroyTerrain = true;
 
     private static Path configFile;
-    private static long lastModified   = -1;
-    private static int  reloadTick     = 0;
+    private static long lastModified = -1;
+    private static int reloadTick = 0;
     private static final int RELOAD_INTERVAL = 40;
 
     public static void init() {
@@ -77,13 +86,15 @@ public class StabConfig {
         Properties props = new Properties();
         try (Reader r = new FileReader(configFile.toFile())) {
             props.load(r);
-            explosionPower   = parseFloat  (props, "explosion_power",    explosionPower);
-            columnStartAbove = parseInt    (props, "column_start_above",  columnStartAbove);
-            strikeRadius     = parseInt    (props, "strike_radius",       strikeRadius);
-            destroyTerrain   = parseBoolean(props, "destroy_terrain",     destroyTerrain);
+            mode = normalizeMode(props.getProperty("mode", mode));
+            explosionPower = parseFloat(props, "explosion_power", explosionPower);
+            columnStartAbove = parseInt(props, "column_start_above", columnStartAbove);
+            strikeRadius = parseInt(props, "strike_radius", strikeRadius);
+            blastDepth = parseInt(props, "blast_depth", blastDepth);
+            destroyTerrain = parseBoolean(props, "destroy_terrain", destroyTerrain);
             lastModified = Files.getLastModifiedTime(configFile).toMillis();
-            StabShotMod.LOGGER.info("[StabShot] Config — power={} radius={} destroyTerrain={}",
-                    explosionPower, strikeRadius, destroyTerrain);
+            StabShotMod.LOGGER.info("[StabShot] Config — mode={} damage={} radius={} blastDepth={} destroyTerrain={}",
+                    mode, explosionPower, strikeRadius, blastDepth, destroyTerrain);
         } catch (Exception e) {
             StabShotMod.LOGGER.error("[StabShot] Failed to load config: {}", e.getMessage());
         }
@@ -94,20 +105,35 @@ public class StabConfig {
         try (Writer w = new FileWriter(configFile.toFile())) {
             w.write("# StabShot Configuration\n");
             w.write("# Changes apply automatically every 2 seconds.\n");
-            w.write("# Or use /stabshot set <key> <value> to change in-game.\n\n");
-            w.write("# Enhanced legacy-only stab shot. No v2/orbital mode and no visible TNT.\n\n");
-            w.write("# Resistance budget/depth. Vanilla TNT = 4.0\n");
-            w.write("explosion_power="    + explosionPower   + "\n\n");
-            w.write("# Blocks above each found surface where strike visuals begin (1=body, 2=head)\n");
+            w.write("# Or use /stabshot and /pb commands to change in-game.\n\n");
+            w.write("# wemmbu = default vertical shaft from highest block down near bedrock.\n");
+            w.write("# legacy = configurable enhanced legacy crater using blast_depth.\n");
+            w.write("mode=" + mode + "\n\n");
+            w.write("# Custom entity damage strength for this mod only. Does not alter vanilla TNT.\n");
+            w.write("explosion_power=" + explosionPower + "\n\n");
+            w.write("# Legacy: blocks above each found surface where blast visuals begin (1=body, 2=head).\n");
             w.write("column_start_above=" + columnStartAbove + "\n\n");
-            w.write("# Exact X/Z half-width. 0=single point, 1=3x3, 2=5x5; nothing breaks outside this footprint\n");
-            w.write("strike_radius="      + strikeRadius     + "\n\n");
-            w.write("# true=breaks blocks with precise bounded columns, false=entity damage + visuals only (recommended)\n");
-            w.write("destroy_terrain="    + destroyTerrain   + "\n");
+            w.write("# Exact X/Z half-width. 0=single point, 1=3x3, 2=5x5.\n");
+            w.write("strike_radius=" + strikeRadius + "\n\n");
+            w.write("# Legacy only: max vertical terrain carve depth in blocks.\n");
+            w.write("blast_depth=" + blastDepth + "\n\n");
+            w.write("# true=custom terrain carving, false=entity damage + explosion particles only.\n");
+            w.write("destroy_terrain=" + destroyTerrain + "\n");
             lastModified = Files.getLastModifiedTime(configFile).toMillis();
         } catch (Exception e) {
             StabShotMod.LOGGER.error("[StabShot] Failed to save config: {}", e.getMessage());
         }
+    }
+
+    public static String normalizeMode(String value) {
+        if (value == null) return MODE_WEMMBU;
+        String normalized = value.trim().toLowerCase();
+        if (MODE_LEGACY.equals(normalized)) return MODE_LEGACY;
+        return MODE_WEMMBU;
+    }
+
+    public static boolean isWemmbuMode() {
+        return MODE_WEMMBU.equals(mode);
     }
 
     private static void writeDefaults(Path path) {
@@ -130,3 +156,4 @@ public class StabConfig {
         catch (Exception e) { return def; }
     }
 }
+

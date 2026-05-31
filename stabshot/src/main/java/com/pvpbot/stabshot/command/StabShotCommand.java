@@ -19,43 +19,26 @@ import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
 
 /**
- * StabShotCommand — all /stabshot and /giveob commands.
+ * StabShotCommand — all /stabshot, /pb, and /giveob commands.
  *
- * /stabshot set power <float>      — resistance budget/depth
+ * /stabshot mode wemmbu|legacy     — switch strike mode
+ * /stabshot set power <float>      — custom entity damage strength
  * /stabshot set radius <int>       — exact bounded X/Z radius
- * /stabshot set startabove <int>   — blocks above each found surface
- * /stabshot set terrain <bool>     — block destruction on/off
+ * /stabshot set startabove <int>   — legacy visual start height
+ * /stabshot set depth <int>        — legacy terrain blast depth
+ * /stabshot set terrain <bool>     — custom block carving on/off
  * /stabshot reload                 — reload config from file
  * /stabshot info                   — show current config
  *
+ * /pb has the same mode/set/reload/info subcommands as /stabshot.
  * /giveob <amount> stab [player]   — give finite stab rods (1 use each)
  * /giveob infinite stab [player]   — give infinite stab rod
  */
 public class StabShotCommand {
 
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
-        dispatcher.register(literal("stabshot")
-            .requires(src -> src.hasPermissionLevel(2))
-            .then(literal("set")
-                .then(literal("power")
-                    .then(argument("value", FloatArgumentType.floatArg(0.1f, 20.0f))
-                        .executes(ctx -> execSetPower(ctx,
-                                FloatArgumentType.getFloat(ctx, "value")))))
-                .then(literal("radius")
-                    .then(argument("value", IntegerArgumentType.integer(0, 5))
-                        .executes(ctx -> execSetRadius(ctx,
-                                IntegerArgumentType.getInteger(ctx, "value")))))
-                .then(literal("startabove")
-                    .then(argument("value", IntegerArgumentType.integer(0, 10))
-                        .executes(ctx -> execSetStartAbove(ctx,
-                                IntegerArgumentType.getInteger(ctx, "value")))))
-                .then(literal("terrain")
-                    .then(argument("value", BoolArgumentType.bool())
-                        .executes(ctx -> execSetTerrain(ctx,
-                                BoolArgumentType.getBool(ctx, "value"))))))
-            .then(literal("reload").executes(StabShotCommand::execReload))
-            .then(literal("info")  .executes(StabShotCommand::execInfo))
-        );
+        dispatcher.register(buildConfigRoot("stabshot"));
+        dispatcher.register(buildConfigRoot("pb"));
 
         dispatcher.register(literal("giveob")
             .requires(src -> src.hasPermissionLevel(2))
@@ -76,11 +59,49 @@ public class StabShotCommand {
         );
     }
 
+    private static com.mojang.brigadier.builder.LiteralArgumentBuilder<ServerCommandSource> buildConfigRoot(String name) {
+        return literal(name)
+            .requires(src -> src.hasPermissionLevel(2))
+            .then(literal("mode")
+                .then(literal("wemmbu").executes(ctx -> execSetMode(ctx, StabConfig.MODE_WEMMBU)))
+                .then(literal("legacy").executes(ctx -> execSetMode(ctx, StabConfig.MODE_LEGACY))))
+            .then(literal("set")
+                .then(literal("power")
+                    .then(argument("value", FloatArgumentType.floatArg(0.1f, 50.0f))
+                        .executes(ctx -> execSetPower(ctx,
+                                FloatArgumentType.getFloat(ctx, "value")))))
+                .then(literal("radius")
+                    .then(argument("value", IntegerArgumentType.integer(0, 6))
+                        .executes(ctx -> execSetRadius(ctx,
+                                IntegerArgumentType.getInteger(ctx, "value")))))
+                .then(literal("startabove")
+                    .then(argument("value", IntegerArgumentType.integer(0, 10))
+                        .executes(ctx -> execSetStartAbove(ctx,
+                                IntegerArgumentType.getInteger(ctx, "value")))))
+                .then(literal("depth")
+                    .then(argument("value", IntegerArgumentType.integer(1, 256))
+                        .executes(ctx -> execSetDepth(ctx,
+                                IntegerArgumentType.getInteger(ctx, "value")))))
+                .then(literal("terrain")
+                    .then(argument("value", BoolArgumentType.bool())
+                        .executes(ctx -> execSetTerrain(ctx,
+                                BoolArgumentType.getBool(ctx, "value"))))))
+            .then(literal("reload").executes(StabShotCommand::execReload))
+            .then(literal("info").executes(StabShotCommand::execInfo));
+    }
+
+    private static int execSetMode(CommandContext<ServerCommandSource> ctx, String mode) {
+        StabConfig.mode = StabConfig.normalizeMode(mode);
+        StabConfig.save();
+        ctx.getSource().sendFeedback(() -> Text.literal("§6[StabShot] §7mode → §f" + StabConfig.mode), false);
+        return 1;
+    }
+
     private static int execSetPower(CommandContext<ServerCommandSource> ctx, float value) {
         StabConfig.explosionPower = value;
         StabConfig.save();
         ctx.getSource().sendFeedback(() ->
-                Text.literal("§6[StabShot] §7explosion_power → §f" + value), false);
+                Text.literal("§6[StabShot] §7custom_damage_power → §f" + value), false);
         return 1;
     }
 
@@ -98,7 +119,17 @@ public class StabShotCommand {
         StabConfig.columnStartAbove = value;
         StabConfig.save();
         ctx.getSource().sendFeedback(() ->
-                Text.literal("§6[StabShot] §7column_start_above → §f" + value), false);
+                Text.literal("§6[StabShot] §7column_start_above → §f" + value
+                        + " §7(legacy mode)"), false);
+        return 1;
+    }
+
+    private static int execSetDepth(CommandContext<ServerCommandSource> ctx, int value) {
+        StabConfig.blastDepth = value;
+        StabConfig.save();
+        ctx.getSource().sendFeedback(() ->
+                Text.literal("§6[StabShot] §7blast_depth → §f" + value
+                        + " §7(legacy mode only)"), false);
         return 1;
     }
 
@@ -107,7 +138,7 @@ public class StabShotCommand {
         StabConfig.save();
         ctx.getSource().sendFeedback(() ->
                 Text.literal("§6[StabShot] §7destroy_terrain → §f" + value
-                        + (value ? " §c(blocks will be destroyed)" : " §a(entity damage only)")),
+                        + (value ? " §c(custom terrain carving enabled)" : " §a(entity damage only)")),
                 false);
         return 1;
     }
@@ -122,12 +153,14 @@ public class StabShotCommand {
 
     private static int execInfo(CommandContext<ServerCommandSource> ctx) {
         ctx.getSource().sendFeedback(() -> Text.literal(
-                "§6§l── StabShot Enhanced Legacy Config ──\n"
-                + "§7explosion_power:    §f" + StabConfig.explosionPower + "\n"
-                + "§7strike_radius:      §f" + StabConfig.strikeRadius
+                "§6§l── StabShot Config ──\n"
+                + "§7mode:                §f" + StabConfig.mode + "\n"
+                + "§7custom_damage_power: §f" + StabConfig.explosionPower + "\n"
+                + "§7strike_radius:       §f" + StabConfig.strikeRadius
                         + " §7(exact " + (StabConfig.strikeRadius*2+1)*(StabConfig.strikeRadius*2+1) + " columns)\n"
-                + "§7column_start_above: §f" + StabConfig.columnStartAbove + "\n"
-                + "§7destroy_terrain:    §f" + StabConfig.destroyTerrain
+                + "§7column_start_above:  §f" + StabConfig.columnStartAbove + " §7(legacy)\n"
+                + "§7blast_depth:         §f" + StabConfig.blastDepth + " §7(legacy only)\n"
+                + "§7destroy_terrain:     §f" + StabConfig.destroyTerrain
         ), false);
         return 1;
     }
@@ -179,3 +212,4 @@ public class StabShotCommand {
         }
     }
 }
+
