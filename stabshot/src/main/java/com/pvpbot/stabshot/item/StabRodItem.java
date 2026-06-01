@@ -126,18 +126,18 @@ public class StabRodItem extends FishingRodItem {
         List<Text> lore = (uses == -1)
             ? List.of(
                 Text.literal("He Who Calls Fire From The Heavens")
-                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_PURPLE).withBold(true).withItalic(false))
-                Text.literal("Will Learn That Nothing built")
-                    .setStyle(Style.EMPTY.withColor(Formatting.RED).withBold(true).withItalic(false))
+                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_PURPLE).withBold(true).withItalic(false)),
+                Text.literal("Will Learn That Nothing Built")
+                    .setStyle(Style.EMPTY.withColor(Formatting.RED).withBold(true).withItalic(false)),
                 Text.literal("Can Forever Last.")
-                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_RED).withBold(true).withItalic(false))
+                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_RED).withBold(true).withItalic(false)))
             : List.of(
                 Text.literal("He Who Calls Fire From The Heavens")
-                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_PURPLE).withBold(true).withItalic(false))
-                Text.literal("Will Learn that")
-                    .setStyle(Style.EMPTY.withColor(Formatting.RED).withBold(true).withItalic(false))
-                Text.literal("Nothing Built Can Forever Last.")
-                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_RED).withBold(true).withItalic(false))
+                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_PURPLE).withBold(true).withItalic(false)),
+                Text.literal("Will Learn that Nothing Built")
+                    .setStyle(Style.EMPTY.withColor(Formatting.RED).withBold(true).withItalic(false)),
+                Text.literal("Can Forever Last.")
+                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_RED).withBold(true).withItalic(false)))
 
         stack.set(DataComponentTypes.LORE, new LoreComponent(lore));
 
