@@ -87,6 +87,10 @@ public class StabShotCommand {
                     .then(argument("value", BoolArgumentType.bool())
                         .executes(ctx -> execSetTerrain(ctx,
                                 BoolArgumentType.getBool(ctx, "value")))))
+                .then(literal("ledgechance")
+                    .then(argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
+                        .executes(ctx -> execSetLedgeChance(ctx,
+                                FloatArgumentType.getFloat(ctx, "value")))))
                 .then(literal("delay")
                     .then(argument("value", IntegerArgumentType.integer(0, 200))
                         .executes(ctx -> execSetDelay(ctx,
@@ -148,6 +152,16 @@ public class StabShotCommand {
         return 1;
     }
 
+    private static int execSetLedgeChance(CommandContext<ServerCommandSource> ctx, float value) {
+        StabConfig.ledgeBlockChance = value;
+        StabConfig.save();
+        ctx.getSource().sendFeedback(() ->
+                Text.literal("\u00a76[StabShot] \u00a77ledge_block_chance \u2192 \u00a7f" + value
+                        + " \u00a77(" + (int)(value * 100) + "% wall blocks kept as protrusions)"),
+                false);
+        return 1;
+    }
+
     private static int execSetDelay(CommandContext<ServerCommandSource> ctx, int value) {
         StabConfig.fireDelayTicks = value;
         StabConfig.save();
@@ -178,6 +192,7 @@ public class StabShotCommand {
                 + "§7column_start_above:  §f" + StabConfig.columnStartAbove + " §7(legacy)\n"
                 + "§7blast_depth:         §f" + StabConfig.blastDepth + " §7(legacy only)\n"
                 + "§7destroy_terrain:     §f" + StabConfig.destroyTerrain + "\n"
+                + "§7ledge_block_chance:  §f" + StabConfig.ledgeBlockChance + " §7(" + (int)(StabConfig.ledgeBlockChance * 100) + "% wall protrusions)\n"
                 + "§7fire_delay_ticks:    §f" + StabConfig.fireDelayTicks
                         + " §7(" + String.format("%.2f", delaySeconds) + "s)"
         ), false);
