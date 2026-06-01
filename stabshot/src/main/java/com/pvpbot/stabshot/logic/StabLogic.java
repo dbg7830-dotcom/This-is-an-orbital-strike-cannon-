@@ -18,19 +18,7 @@ import java.util.List;
 
 /**
  * StabLogic — Vulgar's OSC
- *
- * Particle system:
- *   Phase 0 (instant with strike): EXPLOSION_EMITTER grid at surface
- *           + dense WHITE_SMOKE filling the entire shaft column top-to-bottom
- *   Phase 1 (+20 ticks / 1s):  medium-density column — fade begins
- *   Phase 2 (+35 ticks / 1.75s): sparse column — nearly gone
- *
- * WHITE_SMOKE is a tall white drifting particle (added in 1.20.4) — the closest
- * vanilla equivalent to the swirling white column seen in the reference screenshots.
- *
- * Terrain: instant clean shaft, ~8% wall blocks kept as random protrusions.
- * Delay: server-tick queue, exact timing, no off-thread scheduling.
- */
+ **/
 public class StabLogic {
 
     private static final int   WEMMBU_STOP_ABOVE_BOTTOM = 6;
@@ -150,16 +138,7 @@ public class StabLogic {
 
     /**
      * EXPLOSION particles spawned per-block at each position in the shaft cross-section.
-     * speed=0 + tiny spread (0.3) keeps each particle within its own block — they never
-     * drift outside the shaft. EXPLOSION particles fade on their own; 3 phases just
-     * reduce density over time to extend the total visible duration.
-     *
-     * Phase 0 (instant): dense — 4 per block every 2 Y-levels
-     * Phase 1 (+20 ticks): medium — 2 per block every 3 Y-levels
-     * Phase 2 (+35 ticks): sparse — 1 per block every 6 Y-levels
-     *
-     * Particle depth is capped at 40 blocks below surface so it doesn't
-     * spawn thousands of invisible particles near bedrock.
+     * Uses force=true so particles are visible even deep underground (critical for 100+ block shafts).
      */
     private static void spawnColumnPhase(ServerWorld world,
                                           int cx, int topY, int bottomY,
@@ -179,11 +158,10 @@ public class StabLogic {
         for (int y = topY; y >= particleBottom; y -= yStep) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
-                    // force = true ensures particles are visible even deep underground
+                    // force = true ensures visibility from far away (fixes deep shaft issue)
                     world.spawnParticles(
                             ParticleTypes.EXPLOSION,
-                            true,      // force = true (critical fix for deep shafts)
-                            false,     // important = false
+                            true,      // force = true
                             cx + dx + 0.5,
                             y + 0.5,
                             cz + dz + 0.5,
