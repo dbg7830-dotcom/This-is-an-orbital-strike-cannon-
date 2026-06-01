@@ -18,7 +18,19 @@ import java.util.List;
 
 /**
  * StabLogic — Vulgar's OSC
- **/
+ *
+ * Particle system:
+ *   Phase 0 (instant with strike): EXPLOSION_EMITTER grid at surface
+ *           + dense WHITE_SMOKE filling the entire shaft column top-to-bottom
+ *   Phase 1 (+20 ticks / 1s):  medium-density column — fade begins
+ *   Phase 2 (+35 ticks / 1.75s): sparse column — nearly gone
+ *
+ * WHITE_SMOKE is a tall white drifting particle (added in 1.20.4) — the closest
+ * vanilla equivalent to the swirling white column seen in the reference screenshots.
+ *
+ * Terrain: instant clean shaft, ~8% wall blocks kept as random protrusions.
+ * Delay: server-tick queue, exact timing, no off-thread scheduling.
+ */
 public class StabLogic {
 
     private static final int   WEMMBU_STOP_ABOVE_BOTTOM = 6;
@@ -138,7 +150,7 @@ public class StabLogic {
 
     /**
      * EXPLOSION particles spawned per-block at each position in the shaft cross-section.
-     * Uses force=true so particles are visible even deep underground (critical for 100+ block shafts).
+     * Uses force=true so particles are visible even deep underground (critical for deep shafts).
      */
     private static void spawnColumnPhase(ServerWorld world,
                                           int cx, int topY, int bottomY,
@@ -158,10 +170,11 @@ public class StabLogic {
         for (int y = topY; y >= particleBottom; y -= yStep) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
-                    // force = true ensures visibility from far away (fixes deep shaft issue)
+                    // force = true + important = false ensures long-range visibility
                     world.spawnParticles(
                             ParticleTypes.EXPLOSION,
-                            true,      // force = true
+                            true,   // force = true (this is the key fix)
+                            false,  // important = false
                             cx + dx + 0.5,
                             y + 0.5,
                             cz + dz + 0.5,
