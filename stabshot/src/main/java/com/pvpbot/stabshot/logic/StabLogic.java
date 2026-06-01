@@ -17,7 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * StabLogic â€” Vulgar's OSC strike logic.
+ * StabLogic — Vulgar's OSC strike logic.
  *
  * Delay is handled server-side via a tick queue (no off-thread scheduling).
  * Particles are spawned per-block so they stay exactly inside the strike radius.
@@ -30,7 +30,7 @@ public class StabLogic {
     private static final float UNBREAKABLE_RESISTANCE   = 1_000.0f;
 
     // -------------------------------------------------------------------------
-    // Server-tick delay queue â€” 100% on the server thread, no race conditions
+    // Server-tick delay queue — 100% on the server thread, no race conditions
     // -------------------------------------------------------------------------
 
     private record PendingStrike(ServerWorld world, int x, int y, int z, long fireAtTick) {}
@@ -53,7 +53,7 @@ public class StabLogic {
         });
     }
 
-    /** Entry point â€” schedules or fires immediately based on config delay. */
+    /** Entry point — schedules or fires immediately based on config delay. */
     public static void summonStab(ServerWorld world, int x, int y, int z) {
         int delayTicks = Math.max(0, StabConfig.fireDelayTicks);
         if (delayTicks <= 0) {
@@ -81,10 +81,10 @@ public class StabLogic {
         int topY    = findHighestSurfaceInFootprint(world, centerX, centerZ, radius);
         int bottomY = world.getBottomY() + WEMMBU_STOP_ABOVE_BOTTOM;
 
-        // Sounds first â€” play before carving so they aren't blocked by chunk updates
+        // Sounds first — play before carving so they aren't blocked by chunk updates
         playSounds(world, centerX, topY, centerZ);
 
-        // Particles â€” one EXPLOSION_EMITTER per block position in the footprint,
+        // Particles — one EXPLOSION_EMITTER per block position in the footprint,
         // zero spread so they stay exactly where the strike lands
         spawnStrikeParticles(world, centerX, topY, centerZ, radius);
 
@@ -112,7 +112,7 @@ public class StabLogic {
                 int surfaceY = findColumnSurface(world, cx, y, cz);
                 int colY = surfaceY + StabConfig.columnStartAbove;
 
-                // One EXPLOSION_EMITTER exactly at this column's surface â€” no spread
+                // One EXPLOSION_EMITTER exactly at this column's surface — no spread
                 world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
                         cx + 0.5, colY + 0.5, cz + 0.5, 1, 0, 0, 0, 0);
 
@@ -126,7 +126,7 @@ public class StabLogic {
     }
 
     // -------------------------------------------------------------------------
-    // Particles â€” zero spread, positioned exactly at each block in the footprint
+    // Particles — zero spread, positioned exactly at each block in the footprint
     // -------------------------------------------------------------------------
 
     /**
@@ -142,7 +142,7 @@ public class StabLogic {
                                               int radius) {
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
-                // Big emitter exactly on each block â€” stays put, no drift
+                // Big emitter exactly on each block — stays put, no drift
                 world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
                         centerX + dx + 0.5,
                         topY + 1.0,
@@ -169,12 +169,17 @@ public class StabLogic {
     }
 
     // -------------------------------------------------------------------------
-    // Terrain â€” stepped funnel shaft
+    // Terrain — stepped funnel shaft
     // -------------------------------------------------------------------------
 
     /**
-     * Instantly removes every block in the shaft from topY down to bottomY.
-     * No stepping, no animation, no delays â€” the entire column is gone in one tick.
+     * Instantly removes the entire shaft in one tick — no animation, no steps.
+     *
+     * Wall blocks (at exact Chebyshev radius from center) have a small configurable
+     * chance to be left in place as random protrusions. These are seeded by world
+     * position so they're always the same blocks for a given strike location —
+     * rare enough that landing on one isn't guaranteed, but possible for players
+     * who react fast enough.
      */
     private static void carveSteppedShaft(ServerWorld world,
                                            int centerX, int centerZ,
@@ -182,10 +187,29 @@ public class StabLogic {
         for (int y = topY; y >= bottomY; y--) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
+                    // Only wall-edge blocks can be kept as protrusions
+                    int cheb = Math.max(Math.abs(dx), Math.abs(dz));
+                    if (cheb == radius
+                            && stableChance(centerX + dx, y, centerZ + dz,
+                                            StabConfig.ledgeBlockChance)) {
+                        continue; // keep this block — random wall protrusion
+                    }
                     breakIfPossible(world, centerX + dx, y, centerZ + dz);
                 }
             }
         }
+    }
+
+    /**
+     * Position-stable pseudo-random chance. Same x/y/z always returns same result,
+     * so protrusion blocks don't change between strikes at the same location.
+     */
+    private static boolean stableChance(int x, int y, int z, double chance) {
+        if (chance <= 0) return false;
+        if (chance >= 1) return true;
+        long seed = x * 3129871L ^ z * 116129781L ^ y * 42317861L;
+        seed = seed * seed * 42317861L + seed * 11L;
+        return (((seed >> 16) & 1023L) / 1023.0) < chance;
     }
 
     private static void breakIfPossible(ServerWorld world, int x, int y, int z) {
@@ -213,7 +237,7 @@ public class StabLogic {
     }
 
     // -------------------------------------------------------------------------
-    // Sound â€” high volume, longer-lasting layered booms
+    // Sound — high volume, longer-lasting layered booms
     // -------------------------------------------------------------------------
 
     private static void playSounds(ServerWorld world, int x, int y, int z) {
@@ -221,7 +245,7 @@ public class StabLogic {
         playCustomSound(world, x, y + 15, z, "stabshot:explosion2", 6.0f, 0.75f);
         playCustomSound(world, x, y,      z, "stabshot:explosion1", 6.0f, 0.55f);
 
-        // Vanilla layered booms â€” always present so sound is never missing.
+        // Vanilla layered booms — always present so sound is never missing.
         // 6 pitches spread across a wide range = long cinematic rumble.
         // Volume 6.0 = audible from ~96 blocks away.
         float[] pitches = { 0.50f, 0.60f, 0.68f, 0.76f, 0.85f, 0.95f };
@@ -310,4 +334,4 @@ public class StabLogic {
         return !state.isAir()
                 && state.getBlock().getBlastResistance() < UNBREAKABLE_RESISTANCE;
     }
-                              }
+            }
