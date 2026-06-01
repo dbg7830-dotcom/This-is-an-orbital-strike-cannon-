@@ -122,20 +122,26 @@ public class StabLogic {
     private static void summonLegacy(ServerWorld world, int x, int y, int z) {
         int radius  = Math.max(0, StabConfig.strikeRadius);
         int strikeY = y + StabConfig.columnStartAbove;
+        int bottomY = y - Math.max(1, StabConfig.blastDepth);
 
         playSounds(world, x, strikeY, z);
 
+        // Carve columns
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
                 int colX = x + dx, colZ = z + dz;
                 int surfaceY = findColumnSurface(world, colX, y, colZ);
-                int colY = surfaceY + StabConfig.columnStartAbove;
-                world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
-                        colX + 0.5, colY + 0.5, colZ + 0.5, 1, 0, 0, 0, 0);
                 if (StabConfig.destroyTerrain) carveLegacyColumn(world, colX, surfaceY, colZ);
             }
         }
-        damageEntities(world, x, y - 16, strikeY + 2, z, radius, 1.35f);
+
+        // Same 3-phase EXPLOSION particle column as WEMMBU — no EXPLOSION_EMITTER trash
+        spawnColumnPhase(world, x, strikeY, bottomY, z, radius, 0);
+        long now = world.getServer().getTicks();
+        PARTICLE_PHASES.add(new PendingParticles(world, x, strikeY, bottomY, z, radius, 1, now + 20));
+        PARTICLE_PHASES.add(new PendingParticles(world, x, strikeY, bottomY, z, radius, 2, now + 35));
+
+        damageEntities(world, x, bottomY, strikeY + 2, z, radius, 1.35f);
     }
 
     // -------------------------------------------------------------------------
@@ -143,58 +149,44 @@ public class StabLogic {
     // -------------------------------------------------------------------------
 
     /**
-     * Phase 0 (instant with strike):
-     *   - 1 central EXPLOSION_EMITTER at impact point
-     *   - EXPLOSION particles spread across surface
-     *   - Dense WHITE_SMOKE every 2 Y-levels filling full shaft depth
+     * EXPLOSION particles spawned per-block at each position in the shaft cross-section.
+     * speed=0 + tiny spread (0.3) keeps each particle within its own block — they never
+     * drift outside the shaft. EXPLOSION particles fade on their own; 3 phases just
+     * reduce density over time to extend the total visible duration.
      *
-     * Phase 1 (+20 ticks / 1s):  medium density — fade begins
-     * Phase 2 (+35 ticks / 1.75s): sparse — nearly gone
+     * Phase 0 (instant): dense — 4 per block every 2 Y-levels
+     * Phase 1 (+20 ticks): medium — 2 per block every 3 Y-levels
+     * Phase 2 (+35 ticks): sparse — 1 per block every 6 Y-levels
      *
-     * CRITICAL: speed = 0.0 makes deltaX/Y/Z act as POSITION spread, not velocity.
-     * With speed > 0, all particles spawn at the center and fly outward (invisible).
-     * With speed = 0, particles spawn scattered randomly within ±xzSpread of center.
-     *
-     * xzSpread = radius + 0.5 so particles fill wall-to-wall across the shaft.
-     * WHITE_SMOKE has natural upward drift built into the particle itself, so
-     * speed = 0 still produces a gently rising column effect.
+     * Particle depth is capped at 40 blocks below surface so it doesn't
+     * spawn thousands of invisible particles near bedrock.
      */
     private static void spawnColumnPhase(ServerWorld world,
                                           int cx, int topY, int bottomY,
                                           int cz, int radius, int phase) {
         if (topY < bottomY) return;
 
-        // Fill wall-to-wall: shaft goes from cx-radius to cx+radius, half-width = radius+0.5
-        double xzSpread = radius + 0.5;
+        // No need to fill all the way to bedrock visually
+        int particleBottom = Math.max(bottomY, topY - 40);
 
-        int yStep, count;
+        int yStep, countPerBlock;
         switch (phase) {
-            case 0  -> { yStep = 2; count = Math.max(8,  (radius * 2 + 1) * 2); }
-            case 1  -> { yStep = 3; count = Math.max(4,   radius * 2 + 1);      }
-            default -> { yStep = 6; count = Math.max(2,   radius + 1);          }
+            case 0  -> { yStep = 2; countPerBlock = 4; }
+            case 1  -> { yStep = 3; countPerBlock = 2; }
+            default -> { yStep = 6; countPerBlock = 1; }
         }
 
-        // Phase 0 only: surface impact effects
-        if (phase == 0) {
-            // Single central EXPLOSION_EMITTER — not per-block, that made a big blob
-            world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
-                    cx + 0.5, topY + 1.5, cz + 0.5,
-                    1, 0, 0, 0, 0);
-            // EXPLOSION spread across surface at speed=0 (position spread, not velocity)
-            world.spawnParticles(ParticleTypes.EXPLOSION,
-                    cx + 0.5, topY + 0.3, cz + 0.5,
-                    Math.max(4, (radius * 2 + 1) * (radius * 2 + 1)),
-                    xzSpread, 0.2, xzSpread, 0.0);
-        }
-
-        // WHITE_SMOKE column — speed=0.0 so deltaXYZ = POSITION spread (not velocity)
-        // Particles appear scattered across the full shaft cross-section at each y level
-        for (int y = topY; y >= bottomY; y -= yStep) {
-            world.spawnParticles(ParticleTypes.WHITE_SMOKE,
-                    cx + 0.5, y + 0.5, cz + 0.5,
-                    count,
-                    xzSpread, 0.5, xzSpread,
-                    0.0);  // <-- 0.0 is the critical fix: position spread not velocity
+        for (int y = topY; y >= particleBottom; y -= yStep) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    // One spawn per block position — stays exactly inside the shaft
+                    world.spawnParticles(ParticleTypes.EXPLOSION,
+                            cx + dx + 0.5, y + 0.5, cz + dz + 0.5,
+                            countPerBlock,
+                            0.3, 0.3, 0.3,  // tiny local spread, never exits block bounds
+                            0.0);           // speed=0 — no drift, stays in place and fades
+                }
+            }
         }
     }
 
