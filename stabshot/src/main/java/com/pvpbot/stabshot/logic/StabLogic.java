@@ -179,12 +179,18 @@ public class StabLogic {
         for (int y = topY; y >= particleBottom; y -= yStep) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
-                    // One spawn per block position — stays exactly inside the shaft
-                    world.spawnParticles(ParticleTypes.EXPLOSION,
-                            cx + dx + 0.5, y + 0.5, cz + dz + 0.5,
+                    // force = true ensures particles are visible even deep underground
+                    world.spawnParticles(
+                            ParticleTypes.EXPLOSION,
+                            true,      // force = true (critical fix for deep shafts)
+                            false,     // important = false
+                            cx + dx + 0.5,
+                            y + 0.5,
+                            cz + dz + 0.5,
                             countPerBlock,
-                            0.3, 0.3, 0.3,  // tiny local spread, never exits block bounds
-                            0.0);           // speed=0 — no drift, stays in place and fades
+                            0.3, 0.3, 0.3,  // tiny local spread
+                            0.0             // speed=0
+                    );
                 }
             }
         }
