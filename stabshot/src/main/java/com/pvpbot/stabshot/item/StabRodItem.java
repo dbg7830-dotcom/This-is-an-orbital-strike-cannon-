@@ -109,10 +109,10 @@ public class StabRodItem extends FishingRodItem {
 
         // Clean name â€” no encoding artifacts
         Text name = (uses == -1)
-            ? Text.literal("Orbital Strike Cannon")
-                  .setStyle(Style.EMPTY.withColor(Formatting.AQUA).withBold(true).withItalic(false))
-            : Text.literal("Orbital Strike Cannon")
-                  .setStyle(Style.EMPTY.withColor(Formatting.GOLD).withBold(true).withItalic(false));
+            ? Text.literal("StabShot")
+                  .setStyle(Style.EMPTY.withColor(Formatting.DARK_PURPLE).withBold(true).withItalic(false))
+            : Text.literal("Stab Shot")
+                  .setStyle(Style.EMPTY.withColor(Formatting.RED).withBold(true).withItalic(false));
 
         stack.set(DataComponentTypes.CUSTOM_NAME, name);
 
@@ -125,19 +125,19 @@ public class StabRodItem extends FishingRodItem {
         // Lore â€” no raw section signs, uses Formatting enum only
         List<Text> lore = (uses == -1)
             ? List.of(
-                Text.literal("Infinite Uses")
-                    .setStyle(Style.EMPTY.withColor(Formatting.GREEN).withItalic(false)),
-                Text.literal("Calls down an orbital strike from above.")
-                    .setStyle(Style.EMPTY.withColor(Formatting.GRAY).withItalic(false)),
-                Text.literal("Cannot be enchanted.")
-                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_RED).withItalic(false)))
+                Text.literal("He Who Calls Fire From The Heavens")
+                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_PURPLE).withBold(true).withItalic(false))
+                Text.literal("Will Learn That Nothing built")
+                    .setStyle(Style.EMPTY.withColor(Formatting.RED).withBold(true).withItalic(false))
+                Text.literal("Can Forever Last.")
+                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_RED).withBold(true).withItalic(false))
             : List.of(
-                Text.literal("Single Use  |  Breaks on Fire")
-                    .setStyle(Style.EMPTY.withColor(Formatting.GOLD).withItalic(false)),
-                Text.literal("Calls down an orbital strike from above.")
-                    .setStyle(Style.EMPTY.withColor(Formatting.GRAY).withItalic(false)),
-                Text.literal("Cannot be enchanted.")
-                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_RED).withItalic(false)));
+                Text.literal("He Who Calls Fire From The Heavens")
+                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_PURPLE).withBold(true).withItalic(false))
+                Text.literal("Will Learn that")
+                    .setStyle(Style.EMPTY.withColor(Formatting.RED).withBold(true).withItalic(false))
+                Text.literal("Nothing Built Can Forever Last.")
+                    .setStyle(Style.EMPTY.withColor(Formatting.DARK_RED).withBold(true).withItalic(false))
 
         stack.set(DataComponentTypes.LORE, new LoreComponent(lore));
 
