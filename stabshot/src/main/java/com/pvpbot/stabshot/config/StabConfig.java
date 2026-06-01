@@ -39,6 +39,13 @@ public class StabConfig {
     public static boolean destroyTerrain = true;
 
     /**
+     * Chance (0.0–1.0) for each wall-edge block to be kept as a random protrusion.
+     * 0.08 = ~8% per wall block — rare, only fast-reacting players can catch them.
+     * 0.0 = perfectly clean shaft. 0.20 = noticeably cluttered.
+     */
+    public static float ledgeBlockChance = 0.08f;
+
+    /**
      * Delay in ticks before the strike detonates after being fired.
      * 1 tick = 50 ms at 20 TPS. Default 20 = 1 second. 0 = instant.
      */
@@ -98,6 +105,7 @@ public class StabConfig {
             strikeRadius    = parseInt(props, "strike_radius", strikeRadius);
             blastDepth      = parseInt(props, "blast_depth", blastDepth);
             destroyTerrain  = parseBoolean(props, "destroy_terrain", destroyTerrain);
+            ledgeBlockChance = parseFloat(props, "ledge_block_chance", ledgeBlockChance);
             fireDelayTicks  = parseInt(props, "fire_delay_ticks", fireDelayTicks);
             lastModified    = Files.getLastModifiedTime(configFile).toMillis();
             StabShotMod.LOGGER.info(
@@ -127,6 +135,8 @@ public class StabConfig {
             w.write("blast_depth=" + blastDepth + "\n\n");
             w.write("# true=custom terrain carving, false=entity damage + explosion particles only.\n");
             w.write("destroy_terrain=" + destroyTerrain + "\n\n");
+            w.write("# Chance (0.0-1.0) for wall blocks to stay as random protrusions. 0=clean shaft, 0.08=default ~8%.\n");
+            w.write("ledge_block_chance=" + ledgeBlockChance + "\n\n");
             w.write("# Delay in ticks before the strike detonates after firing (20 ticks = 1 second, 0 = instant).\n");
             w.write("fire_delay_ticks=" + fireDelayTicks + "\n");
             lastModified = Files.getLastModifiedTime(configFile).toMillis();
