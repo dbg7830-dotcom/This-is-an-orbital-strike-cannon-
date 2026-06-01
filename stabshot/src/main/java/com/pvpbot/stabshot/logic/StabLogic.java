@@ -17,12 +17,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * StabLogic — Vulgar's OSC strike logic.
+ * StabLogic — Vulgar's OSC
  *
- * Delay is handled server-side via a tick queue (no off-thread scheduling).
- * Particles are spawned per-block so they stay exactly inside the strike radius.
- * Terrain carves a stepped funnel: each ledge ring the shaft narrows by 1,
- * matching the concentric-squares look visible in the reference screenshots.
+ * Particle system:
+ *   Phase 0 (instant with strike): EXPLOSION_EMITTER grid at surface
+ *           + dense WHITE_SMOKE filling the entire shaft column top-to-bottom
+ *   Phase 1 (+20 ticks / 1s):  medium-density column — fade begins
+ *   Phase 2 (+35 ticks / 1.75s): sparse column — nearly gone
+ *
+ * WHITE_SMOKE is a tall white drifting particle (added in 1.20.4) — the closest
+ * vanilla equivalent to the swirling white column seen in the reference screenshots.
+ *
+ * Terrain: instant clean shaft, ~8% wall blocks kept as random protrusions.
+ * Delay: server-tick queue, exact timing, no off-thread scheduling.
  */
 public class StabLogic {
 
@@ -30,69 +37,82 @@ public class StabLogic {
     private static final float UNBREAKABLE_RESISTANCE   = 1_000.0f;
 
     // -------------------------------------------------------------------------
-    // Server-tick delay queue — 100% on the server thread, no race conditions
+    // Tick queues — everything runs on the server thread
     // -------------------------------------------------------------------------
 
     private record PendingStrike(ServerWorld world, int x, int y, int z, long fireAtTick) {}
 
-    private static final List<PendingStrike> PENDING = new ArrayList<>();
+    private record PendingParticles(
+            ServerWorld world, int cx, int topY, int bottomY, int cz,
+            int radius, int phase, long fireAtTick) {}
 
-    /**
-     * Called every server tick from StabShotMod's tick event.
-     * Drains any strikes whose fireAtTick has been reached.
-     */
+    private static final List<PendingStrike>    PENDING         = new ArrayList<>();
+    private static final List<PendingParticles> PARTICLE_PHASES = new ArrayList<>();
+
     public static void onServerTick(net.minecraft.server.MinecraftServer server) {
-        if (PENDING.isEmpty()) return;
+        if (PENDING.isEmpty() && PARTICLE_PHASES.isEmpty()) return;
         long now = server.getTicks();
-        PENDING.removeIf(strike -> {
-            if (now >= strike.fireAtTick()) {
-                executeStrike(strike.world(), strike.x(), strike.y(), strike.z());
+
+        PENDING.removeIf(s -> {
+            if (now >= s.fireAtTick()) {
+                executeStrike(s.world(), s.x(), s.y(), s.z());
+                return true;
+            }
+            return false;
+        });
+
+        PARTICLE_PHASES.removeIf(pp -> {
+            if (now >= pp.fireAtTick()) {
+                spawnColumnPhase(pp.world(), pp.cx(), pp.topY(), pp.bottomY(),
+                        pp.cz(), pp.radius(), pp.phase());
                 return true;
             }
             return false;
         });
     }
 
-    /** Entry point — schedules or fires immediately based on config delay. */
+    // -------------------------------------------------------------------------
+    // Entry point
+    // -------------------------------------------------------------------------
+
     public static void summonStab(ServerWorld world, int x, int y, int z) {
-        int delayTicks = Math.max(0, StabConfig.fireDelayTicks);
-        if (delayTicks <= 0) {
+        int delay = Math.max(0, StabConfig.fireDelayTicks);
+        if (delay <= 0) {
             executeStrike(world, x, y, z);
         } else {
-            long fireAt = world.getServer().getTicks() + delayTicks;
-            PENDING.add(new PendingStrike(world, x, y, z, fireAt));
+            PENDING.add(new PendingStrike(world, x, y, z,
+                    world.getServer().getTicks() + delay));
         }
     }
 
     private static void executeStrike(ServerWorld world, int x, int y, int z) {
-        if (StabConfig.isWemmbuMode()) {
-            summonWemmbu(world, x, z);
-        } else {
-            summonLegacy(world, x, y, z);
-        }
+        if (StabConfig.isWemmbuMode()) summonWemmbu(world, x, z);
+        else                           summonLegacy(world, x, y, z);
     }
 
     // -------------------------------------------------------------------------
     // WEMMBU mode
     // -------------------------------------------------------------------------
 
-    private static void summonWemmbu(ServerWorld world, int centerX, int centerZ) {
+    private static void summonWemmbu(ServerWorld world, int cx, int cz) {
         int radius  = Math.max(0, StabConfig.strikeRadius);
-        int topY    = findHighestSurfaceInFootprint(world, centerX, centerZ, radius);
+        int topY    = findHighestSurfaceInFootprint(world, cx, cz, radius);
         int bottomY = world.getBottomY() + WEMMBU_STOP_ABOVE_BOTTOM;
 
-        // Sounds first — play before carving so they aren't blocked by chunk updates
-        playSounds(world, centerX, topY, centerZ);
+        playSounds(world, cx, topY, cz);
 
-        // Particles — one EXPLOSION_EMITTER per block position in the footprint,
-        // zero spread so they stay exactly where the strike lands
-        spawnStrikeParticles(world, centerX, topY, centerZ, radius);
+        // Phase 0 — fires with the strike
+        spawnColumnPhase(world, cx, topY, bottomY, cz, radius, 0);
 
-        if (StabConfig.destroyTerrain) {
-            carveSteppedShaft(world, centerX, centerZ, radius, topY, bottomY);
-        }
+        // Schedule fading phases
+        long now = world.getServer().getTicks();
+        PARTICLE_PHASES.add(new PendingParticles(
+                world, cx, topY, bottomY, cz, radius, 1, now + 20));
+        PARTICLE_PHASES.add(new PendingParticles(
+                world, cx, topY, bottomY, cz, radius, 2, now + 35));
 
-        damageEntities(world, centerX, bottomY, topY, centerZ, radius, 1.85f);
+        if (StabConfig.destroyTerrain) carveShaft(world, cx, cz, radius, topY, bottomY);
+        damageEntities(world, cx, bottomY, topY, cz, radius, 1.85f);
     }
 
     // -------------------------------------------------------------------------
@@ -107,166 +127,136 @@ public class StabLogic {
 
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
-                int cx = x + dx;
-                int cz = z + dz;
-                int surfaceY = findColumnSurface(world, cx, y, cz);
+                int colX = x + dx, colZ = z + dz;
+                int surfaceY = findColumnSurface(world, colX, y, colZ);
                 int colY = surfaceY + StabConfig.columnStartAbove;
-
-                // One EXPLOSION_EMITTER exactly at this column's surface — no spread
                 world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
-                        cx + 0.5, colY + 0.5, cz + 0.5, 1, 0, 0, 0, 0);
-
-                if (StabConfig.destroyTerrain) {
-                    carveLegacyColumn(world, cx, surfaceY, cz);
-                }
+                        colX + 0.5, colY + 0.5, colZ + 0.5, 1, 0, 0, 0, 0);
+                if (StabConfig.destroyTerrain) carveLegacyColumn(world, colX, surfaceY, colZ);
             }
         }
-
         damageEntities(world, x, y - 16, strikeY + 2, z, radius, 1.35f);
     }
 
     // -------------------------------------------------------------------------
-    // Particles — zero spread, positioned exactly at each block in the footprint
+    // Particle phases — white column that fills the shaft and fades
     // -------------------------------------------------------------------------
 
     /**
-     * Spawns one EXPLOSION_EMITTER at the exact center of every block position
-     * inside the strike footprint. Speed=0 and all offsets=0 means particles
-     * appear right where the blast is and do NOT fly outward.
+     * Phase 0 (instant with strike):
+     *   - 1 central EXPLOSION_EMITTER at impact point
+     *   - EXPLOSION particles spread across surface
+     *   - Dense WHITE_SMOKE every 2 Y-levels filling full shaft depth
      *
-     * Also adds a dense layer of small EXPLOSION particles at ground level
-     * to fill the visual and give the "everything explodes at once" look.
+     * Phase 1 (+20 ticks / 1s):  medium density — fade begins
+     * Phase 2 (+35 ticks / 1.75s): sparse — nearly gone
+     *
+     * CRITICAL: speed = 0.0 makes deltaX/Y/Z act as POSITION spread, not velocity.
+     * With speed > 0, all particles spawn at the center and fly outward (invisible).
+     * With speed = 0, particles spawn scattered randomly within ±xzSpread of center.
+     *
+     * xzSpread = radius + 0.5 so particles fill wall-to-wall across the shaft.
+     * WHITE_SMOKE has natural upward drift built into the particle itself, so
+     * speed = 0 still produces a gently rising column effect.
      */
-    private static void spawnStrikeParticles(ServerWorld world,
-                                              int centerX, int topY, int centerZ,
-                                              int radius) {
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dz = -radius; dz <= radius; dz++) {
-                // Big emitter exactly on each block — stays put, no drift
-                world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
-                        centerX + dx + 0.5,
-                        topY + 1.0,
-                        centerZ + dz + 0.5,
-                        1,   // count = 1 per position
-                        0, 0, 0,   // zero XYZ offset
-                        0);  // speed = 0
+    private static void spawnColumnPhase(ServerWorld world,
+                                          int cx, int topY, int bottomY,
+                                          int cz, int radius, int phase) {
+        if (topY < bottomY) return;
 
-                // Small explosion at ground level per block for density
-                world.spawnParticles(ParticleTypes.EXPLOSION,
-                        centerX + dx + 0.5,
-                        topY + 0.5,
-                        centerZ + dz + 0.5,
-                        3,
-                        0, 0, 0,
-                        0);
-            }
+        // Fill wall-to-wall: shaft goes from cx-radius to cx+radius, half-width = radius+0.5
+        double xzSpread = radius + 0.5;
+
+        int yStep, count;
+        switch (phase) {
+            case 0  -> { yStep = 2; count = Math.max(8,  (radius * 2 + 1) * 2); }
+            case 1  -> { yStep = 3; count = Math.max(4,   radius * 2 + 1);      }
+            default -> { yStep = 6; count = Math.max(2,   radius + 1);          }
         }
 
-        // One extra central EXPLOSION_EMITTER at the very epicentre for emphasis
-        world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
-                centerX + 0.5, topY + 1.5, centerZ + 0.5,
-                1, 0, 0, 0, 0);
+        // Phase 0 only: surface impact effects
+        if (phase == 0) {
+            // Single central EXPLOSION_EMITTER — not per-block, that made a big blob
+            world.spawnParticles(ParticleTypes.EXPLOSION_EMITTER,
+                    cx + 0.5, topY + 1.5, cz + 0.5,
+                    1, 0, 0, 0, 0);
+            // EXPLOSION spread across surface at speed=0 (position spread, not velocity)
+            world.spawnParticles(ParticleTypes.EXPLOSION,
+                    cx + 0.5, topY + 0.3, cz + 0.5,
+                    Math.max(4, (radius * 2 + 1) * (radius * 2 + 1)),
+                    xzSpread, 0.2, xzSpread, 0.0);
+        }
+
+        // WHITE_SMOKE column — speed=0.0 so deltaXYZ = POSITION spread (not velocity)
+        // Particles appear scattered across the full shaft cross-section at each y level
+        for (int y = topY; y >= bottomY; y -= yStep) {
+            world.spawnParticles(ParticleTypes.WHITE_SMOKE,
+                    cx + 0.5, y + 0.5, cz + 0.5,
+                    count,
+                    xzSpread, 0.5, xzSpread,
+                    0.0);  // <-- 0.0 is the critical fix: position spread not velocity
+        }
     }
 
     // -------------------------------------------------------------------------
-    // Terrain — stepped funnel shaft
+    // Terrain carving
     // -------------------------------------------------------------------------
 
-    /**
-     * Instantly removes the entire shaft in one tick — no animation, no steps.
-     *
-     * Wall blocks (at exact Chebyshev radius from center) have a small configurable
-     * chance to be left in place as random protrusions. These are seeded by world
-     * position so they're always the same blocks for a given strike location —
-     * rare enough that landing on one isn't guaranteed, but possible for players
-     * who react fast enough.
-     */
-    private static void carveSteppedShaft(ServerWorld world,
-                                           int centerX, int centerZ,
-                                           int radius, int topY, int bottomY) {
+    private static void carveShaft(ServerWorld world, int cx, int cz,
+                                    int radius, int topY, int bottomY) {
         for (int y = topY; y >= bottomY; y--) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
-                    // Only wall-edge blocks can be kept as protrusions
+                    // Wall-edge blocks have a small chance to stay as protrusions
                     int cheb = Math.max(Math.abs(dx), Math.abs(dz));
                     if (cheb == radius
-                            && stableChance(centerX + dx, y, centerZ + dz,
-                                            StabConfig.ledgeBlockChance)) {
-                        continue; // keep this block — random wall protrusion
-                    }
-                    breakIfPossible(world, centerX + dx, y, centerZ + dz);
+                            && stableChance(cx + dx, y, cz + dz,
+                                            StabConfig.ledgeBlockChance)) continue;
+                    breakIfPossible(world, cx + dx, y, cz + dz);
                 }
             }
         }
-    }
-
-    /**
-     * Position-stable pseudo-random chance. Same x/y/z always returns same result,
-     * so protrusion blocks don't change between strikes at the same location.
-     */
-    private static boolean stableChance(int x, int y, int z, double chance) {
-        if (chance <= 0) return false;
-        if (chance >= 1) return true;
-        long seed = x * 3129871L ^ z * 116129781L ^ y * 42317861L;
-        seed = seed * seed * 42317861L + seed * 11L;
-        return (((seed >> 16) & 1023L) / 1023.0) < chance;
     }
 
     private static void breakIfPossible(ServerWorld world, int x, int y, int z) {
         BlockPos pos = new BlockPos(x, y, z);
         BlockState state = world.getBlockState(pos);
-        if (canAffect(state)) {
-            world.breakBlock(pos, false);
-        }
+        if (canAffect(state)) world.breakBlock(pos, false);
     }
 
     private static void carveLegacyColumn(ServerWorld world, int x, int surfaceY, int z) {
         int impactY  = surfaceY + StabConfig.columnStartAbove;
         int maxDepth = Math.max(1, StabConfig.blastDepth);
-        BlockPos.Mutable mutable = new BlockPos.Mutable();
-
+        BlockPos.Mutable pos = new BlockPos.Mutable();
         for (int y = impactY; y >= surfaceY - maxDepth; y--) {
-            mutable.set(x, y, z);
-            BlockState state = world.getBlockState(mutable);
+            pos.set(x, y, z);
+            BlockState state = world.getBlockState(pos);
             if (!canAffect(state)) continue;
-            double progress = (impactY - y) / (double) (maxDepth + StabConfig.columnStartAbove + 1);
-            if (state.getBlock().getBlastResistance() <= 60.0 * (1.0 - progress * 0.6)) {
-                world.breakBlock(mutable, false);
-            }
+            double progress = (impactY - y) / (double)(maxDepth + StabConfig.columnStartAbove + 1);
+            if (state.getBlock().getBlastResistance() <= 60.0 * (1.0 - progress * 0.6))
+                world.breakBlock(pos, false);
         }
     }
 
     // -------------------------------------------------------------------------
-    // Sound — high volume, longer-lasting layered booms
+    // Sounds
     // -------------------------------------------------------------------------
 
     private static void playSounds(ServerWorld world, int x, int y, int z) {
-        // Custom sounds (if .ogg files are provided)
         playCustomSound(world, x, y + 15, z, "stabshot:explosion2", 6.0f, 0.75f);
         playCustomSound(world, x, y,      z, "stabshot:explosion1", 6.0f, 0.55f);
-
-        // Vanilla layered booms — always present so sound is never missing.
-        // 6 pitches spread across a wide range = long cinematic rumble.
-        // Volume 6.0 = audible from ~96 blocks away.
         float[] pitches = { 0.50f, 0.60f, 0.68f, 0.76f, 0.85f, 0.95f };
-        for (float pitch : pitches) {
+        for (float p : pitches)
             world.playSound(null, x + 0.5, y, z + 0.5,
-                    SoundEvents.ENTITY_GENERIC_EXPLODE,
-                    SoundCategory.MASTER,
-                    6.0f, pitch);
-        }
+                    SoundEvents.ENTITY_GENERIC_EXPLODE, SoundCategory.MASTER, 6.0f, p);
     }
 
-    private static void playCustomSound(ServerWorld world,
-                                         int x, int y, int z,
-                                         String soundId,
-                                         float volume, float pitch) {
+    private static void playCustomSound(ServerWorld world, int x, int y, int z,
+                                         String id, float vol, float pitch) {
         try {
-            SoundEvent event = Registries.SOUND_EVENT.get(Identifier.of(soundId));
-            if (event != null) {
-                world.playSound(null, x + 0.5, y, z + 0.5,
-                        event, SoundCategory.MASTER, volume, pitch);
-            }
+            SoundEvent ev = Registries.SOUND_EVENT.get(Identifier.of(id));
+            if (ev != null)
+                world.playSound(null, x + 0.5, y, z + 0.5, ev, SoundCategory.MASTER, vol, pitch);
         } catch (Exception ignored) {}
     }
 
@@ -275,17 +265,14 @@ public class StabLogic {
     // -------------------------------------------------------------------------
 
     private static int findHighestSurfaceInFootprint(ServerWorld world,
-                                                      int centerX, int centerZ,
-                                                      int radius) {
+                                                      int cx, int cz, int radius) {
         int highest = world.getBottomY();
-        int top = world.getTopY() - 1;
-        BlockPos.Mutable mutable = new BlockPos.Mutable();
-
+        BlockPos.Mutable pos = new BlockPos.Mutable();
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
-                for (int y = top; y >= world.getBottomY(); y--) {
-                    mutable.set(centerX + dx, y, centerZ + dz);
-                    if (!world.getBlockState(mutable).isAir()) {
+                for (int y = world.getTopY() - 1; y >= world.getBottomY(); y--) {
+                    pos.set(cx + dx, y, cz + dz);
+                    if (!world.getBlockState(pos).isAir()) {
                         highest = Math.max(highest, y);
                         break;
                     }
@@ -296,10 +283,10 @@ public class StabLogic {
     }
 
     private static int findColumnSurface(ServerWorld world, int x, int targetY, int z) {
-        BlockPos.Mutable mutable = new BlockPos.Mutable();
+        BlockPos.Mutable pos = new BlockPos.Mutable();
         for (int y = targetY + 8; y >= targetY - 16; y--) {
-            mutable.set(x, y, z);
-            if (!world.getBlockState(mutable).isAir()) return y;
+            pos.set(x, y, z);
+            if (!world.getBlockState(pos).isAir()) return y;
         }
         return targetY;
     }
@@ -308,21 +295,18 @@ public class StabLogic {
     // Entity damage
     // -------------------------------------------------------------------------
 
-    private static void damageEntities(ServerWorld world,
-                                        int centerX, int minY, int maxY, int centerZ,
-                                        int radius, float multiplier) {
+    private static void damageEntities(ServerWorld world, int cx, int minY, int maxY,
+                                        int cz, int radius, float mult) {
         double reach = radius + 0.75;
-        Box box = new Box(centerX + 0.5 - reach, minY, centerZ + 0.5 - reach,
-                          centerX + 0.5 + reach, maxY + 1.0, centerZ + 0.5 + reach);
-
-        for (Entity entity : world.getOtherEntities(null, box, Entity::isAlive)) {
-            double dist = Math.max(
-                    Math.abs(entity.getX() - (centerX + 0.5)),
-                    Math.abs(entity.getZ() - (centerZ + 0.5)));
+        Box box = new Box(cx + 0.5 - reach, minY, cz + 0.5 - reach,
+                          cx + 0.5 + reach, maxY + 1.0, cz + 0.5 + reach);
+        for (Entity e : world.getOtherEntities(null, box, Entity::isAlive)) {
+            double dist = Math.max(Math.abs(e.getX() - (cx + 0.5)),
+                                   Math.abs(e.getZ() - (cz + 0.5)));
             if (dist > reach) continue;
-            float dmg = (float) (StabConfig.explosionPower * 4.0 * multiplier
+            float dmg = (float)(StabConfig.explosionPower * 4.0 * mult
                     * (1.0 - (dist / (reach + 1.0)) * 0.55));
-            if (dmg > 0) entity.damage(world.getDamageSources().explosion(null, null), dmg);
+            if (dmg > 0) e.damage(world.getDamageSources().explosion(null, null), dmg);
         }
     }
 
@@ -330,8 +314,16 @@ public class StabLogic {
     // Helpers
     // -------------------------------------------------------------------------
 
+    private static boolean stableChance(int x, int y, int z, double chance) {
+        if (chance <= 0) return false;
+        if (chance >= 1) return true;
+        long seed = x * 3129871L ^ z * 116129781L ^ y * 42317861L;
+        seed = seed * seed * 42317861L + seed * 11L;
+        return (((seed >> 16) & 1023L) / 1023.0) < chance;
+    }
+
     private static boolean canAffect(BlockState state) {
         return !state.isAir()
                 && state.getBlock().getBlastResistance() < UNBREAKABLE_RESISTANCE;
     }
-            }
+}
