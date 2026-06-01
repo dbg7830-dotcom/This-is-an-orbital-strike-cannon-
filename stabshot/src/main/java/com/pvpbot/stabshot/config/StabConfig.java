@@ -39,11 +39,11 @@ public class StabConfig {
     public static boolean destroyTerrain = true;
 
     /**
-     * Chance (0.0–1.0) for each wall-edge block to be kept as a random protrusion.
-     * 0.08 = ~8% per wall block — rare, only fast-reacting players can catch them.
-     * 0.0 = perfectly clean shaft. 0.20 = noticeably cluttered.
+     * Chance (0.0–1.0) for wall blocks to be kept as random protrusions.
+     * Default 0.0 = perfectly clean flat walls, matching the reference.
+     * Increase via /stabshot set ledgechance if you want occasional catch blocks.
      */
-    public static float ledgeBlockChance = 0.08f;
+    public static float ledgeBlockChance = 0.0f;
 
     /**
      * Delay in ticks before the strike detonates after being fired.
