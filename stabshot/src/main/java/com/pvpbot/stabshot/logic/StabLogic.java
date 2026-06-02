@@ -149,41 +149,42 @@ public class StabLogic {
     // -------------------------------------------------------------------------
 
     /**
-     * EXPLOSION particles spawned per-block at each position in the shaft cross-section.
-     * Uses force=true so particles are visible even deep underground (critical for deep shafts).
+     * EXPLOSION particles per Y-level across the full shaft cross-section.
+     *
+     * THE CRITICAL FIX: uses world.spawnParticles(viewer=null, particle, longDistance=TRUE, ...)
+     * The default overload uses longDistance=false which only sends particles within 32 blocks.
+     * A shaft goes 100+ blocks deep — everything below the player's feet was never sent to client.
+     *
+     * speed=0.0 with non-zero delta = position scatter (not velocity).
+     * Particles spawn randomly within ±xzSpread of center at each Y level.
+     * EXPLOSION particles have no drift, they stay in place and fade on their own.
+     *
+     * Phase 0 (instant): dense — every Y level
+     * Phase 1 (+20 ticks): medium — every 2 Y levels
+     * Phase 2 (+35 ticks): sparse — every 4 Y levels
      */
     private static void spawnColumnPhase(ServerWorld world,
                                           int cx, int topY, int bottomY,
                                           int cz, int radius, int phase) {
         if (topY < bottomY) return;
 
-        // No need to fill all the way to bedrock visually
         int particleBottom = Math.max(bottomY, topY - 40);
+        double xzSpread = radius + 0.5; // wall-to-wall across shaft
 
-        int yStep, countPerBlock;
+        int yStep, count;
         switch (phase) {
-            case 0  -> { yStep = 2; countPerBlock = 4; }
-            case 1  -> { yStep = 3; countPerBlock = 2; }
-            default -> { yStep = 6; countPerBlock = 1; }
+            case 0  -> { yStep = 1; count = Math.max(6,  (radius * 2 + 1) * 2); }
+            case 1  -> { yStep = 2; count = Math.max(3,   radius * 2 + 1);      }
+            default -> { yStep = 4; count = Math.max(2,   radius + 1);          }
         }
 
         for (int y = topY; y >= particleBottom; y -= yStep) {
-            for (int dx = -radius; dx <= radius; dx++) {
-                for (int dz = -radius; dz <= radius; dz++) {
-                    // force = true + important = false ensures long-range visibility
-                    world.spawnParticles(
-                            ParticleTypes.EXPLOSION,
-                            true,   // force = true (this is the key fix)
-                            false,  // important = false
-                            cx + dx + 0.5,
-                            y + 0.5,
-                            cz + dz + 0.5,
-                            countPerBlock,
-                            0.3, 0.3, 0.3,  // tiny local spread
-                            0.0             // speed=0
-                    );
-                }
-            }
+            // longDistance=true → sends to all players within 512 blocks (not just 32)
+            world.spawnParticles(null, ParticleTypes.EXPLOSION_EMITTER, true,
+                    cx + 0.5, y + 0.5, cz + 0.5,
+                    count,
+                    xzSpread, 0.4, xzSpread,
+                    0.0);
         }
     }
 
