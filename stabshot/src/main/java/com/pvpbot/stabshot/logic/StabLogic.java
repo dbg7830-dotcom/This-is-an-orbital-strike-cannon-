@@ -179,12 +179,16 @@ public class StabLogic {
         }
 
         for (int y = topY; y >= particleBottom; y -= yStep) {
-            // longDistance=true → sends to all players within 512 blocks (not just 32)
-            world.spawnParticles(null, ParticleTypes.EXPLOSION_EMITTER, true,
-                    cx + 0.5, y + 0.5, cz + 0.5,
-                    count,
-                    xzSpread, 0.4, xzSpread,
-                    0.0);
+            // Must loop players manually — passing null as viewer crashes in 1.21.1
+            // because the method calls getNetworkHandler() on the viewer directly.
+            // Passing each player with longDistance=true sends to everyone within 512 blocks.
+            for (net.minecraft.server.network.ServerPlayerEntity player : world.getPlayers()) {
+                world.spawnParticles(player, ParticleTypes.EXPLOSION_EMITTER, true,
+                        cx + 0.5, y + 0.5, cz + 0.5,
+                        count,
+                        xzSpread, 0.4, xzSpread,
+                        0.0);
+            }
         }
     }
 
@@ -316,4 +320,4 @@ public class StabLogic {
         return !state.isAir()
                 && state.getBlock().getBlastResistance() < UNBREAKABLE_RESISTANCE;
     }
-}
+                }
