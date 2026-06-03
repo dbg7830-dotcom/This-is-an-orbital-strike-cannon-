@@ -40,10 +40,10 @@ public class StabConfig {
 
     /**
      * Chance (0.0–1.0) for wall blocks to be kept as random protrusions.
-     * Default 0.0 = perfectly clean flat walls, matching the reference.
-     * Increase via /stabshot set ledgechance if you want occasional catch blocks.
+     * 0.04 = ~4% of wall blocks kept — matches the sparse single blocks
+     * visible in the reference screenshots. Tunable via /stabshot set ledgechance.
      */
-    public static float ledgeBlockChance = 0.0f;
+    public static float ledgeBlockChance = 0.04f;
 
     /**
      * Delay in ticks before the strike detonates after being fired.
