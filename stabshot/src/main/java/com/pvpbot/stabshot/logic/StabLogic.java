@@ -83,13 +83,12 @@ public class StabLogic {
     // -------------------------------------------------------------------------
 
     private static void summonWemmbu(ServerWorld world, int cx, int cz) {
-        int radius  = Math.max(0, StabConfig.strikeRadius);
-        int topY    = findHighestSurfaceInFootprint(world, cx, cz, radius);
+        int radius  = Math.max(0, StabConfig.wemmbuRadius);
         int bottomY = world.getBottomY() + WEMMBU_STOP_ABOVE_BOTTOM;
 
         playSounds(world, cx, topY, cz);
 
-        // Single particle phase only â€” fires with the strike, no follow-up bursts
+        // Single particle phase only — fires with the strike, no follow-up bursts
         spawnColumnPhase(world, cx, topY, bottomY, cz, radius, 0);
 
         if (StabConfig.destroyTerrain) carveShaft(world, cx, cz, radius, topY, bottomY);
@@ -121,7 +120,7 @@ public class StabLogic {
     }
 
     // -------------------------------------------------------------------------
-    // Particles â€” single phase, fires with the strike
+    // Particles — single phase, fires with the strike
     // -------------------------------------------------------------------------
 
     private static void spawnColumnPhase(ServerWorld world,
@@ -188,7 +187,7 @@ public class StabLogic {
     }
 
     // -------------------------------------------------------------------------
-    // Entity damage â€” shield blocking, armor/shield durability, living only
+    // Entity damage — shield blocking, armor/shield durability, living only
     // -------------------------------------------------------------------------
 
     private static void damageEntities(ServerWorld world, int cx, int minY, int maxY,
@@ -208,27 +207,20 @@ public class StabLogic {
                     * (1.0 - (dist / (reach + 1.0)) * 0.55));
 
             if (living.isBlocking()) {
-                // Shield block â€” launch upward, destroy shield, no HP damage
-                living.setVelocity(
-                        living.getVelocity().x * 0.2,
-                        1.3,
-                        living.getVelocity().z * 0.2);
-                living.velocityModified = true;
+                // Shield block — launch upward, break shield, no HP damage.
+                // addVelocity delta (not setVelocity) because addVelocity internally
+                // triggers the velocity sync packet to the player client.
+                double curX = living.getVelocity().x;
+                double curY = living.getVelocity().y;
+                double curZ = living.getVelocity().z;
+                living.addVelocity(curX * 0.2 - curX, 1.3 - curY, curZ * 0.2 - curZ);
 
-                // Damage shield enough to instantly break unenchanted ones.
-                // A normal shield has 336 durability â€” we deal max+1 which
-                // guarantees a break on unenchanted gear.
-                // Unbreaking enchantment applies its own reduction per-point
-                // internally, so enchanted shields will survive proportionally.
                 Hand activeHand = living.getActiveHand();
                 if (activeHand != null) {
                     ItemStack shield = living.getActiveItem();
                     if (!shield.isEmpty()) {
                         EquipmentSlot shieldSlot = activeHand == Hand.MAIN_HAND
                                 ? EquipmentSlot.MAINHAND : EquipmentSlot.OFFHAND;
-                        // shield.getMaxDamage() + 1 = enough to always snap an
-                        // unenchanted shield in one hit, with proper vanilla
-                        // break animation/sound played automatically by damage()
                         shield.damage(shield.getMaxDamage() + 1, living, shieldSlot);
                     }
                 }
@@ -239,9 +231,13 @@ public class StabLogic {
 
             living.damage(world.getDamageSources().explosion(null, null), baseDmg);
 
-            // Armor durability: random 53â€“90 per piece, weighted toward lower values.
-            // Using r^1.5 distribution: r^1.5 < r for 0 < r < 1 so values cluster
-            // near the low end (53â€“65) rather than being uniform across the range.
+            // takeKnockback(strength, dx, dz) — dx/dz = direction FROM explosion TO entity
+            // = pushes entity away from shaft center. Scales with proximity.
+            double kbStrength = 0.55 * (1.0 - dist / (reach + 1.0));
+            living.takeKnockback(
+                    kbStrength,
+                    living.getX() - (cx + 0.5),
+                    living.getZ() - (cz + 0.5));
             for (EquipmentSlot slot : new EquipmentSlot[]{
                     EquipmentSlot.HEAD, EquipmentSlot.CHEST,
                     EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
@@ -324,4 +320,4 @@ public class StabLogic {
         return !state.isAir()
                 && state.getBlock().getBlastResistance() < UNBREAKABLE_RESISTANCE;
     }
-                                            }
+                 }
