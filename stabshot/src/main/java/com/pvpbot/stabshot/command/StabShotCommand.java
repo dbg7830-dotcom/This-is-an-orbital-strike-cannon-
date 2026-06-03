@@ -75,6 +75,10 @@ public class StabShotCommand {
                     .then(argument("value", IntegerArgumentType.integer(0, 6))
                         .executes(ctx -> execSetRadius(ctx,
                                 IntegerArgumentType.getInteger(ctx, "value")))))
+                .then(literal("wemmburadius")
+                    .then(argument("value", IntegerArgumentType.integer(0, 6))
+                        .executes(ctx -> execSetWemmbuRadius(ctx,
+                                IntegerArgumentType.getInteger(ctx, "value")))))
                 .then(literal("startabove")
                     .then(argument("value", IntegerArgumentType.integer(0, 10))
                         .executes(ctx -> execSetStartAbove(ctx,
@@ -111,6 +115,16 @@ public class StabShotCommand {
         StabConfig.save();
         ctx.getSource().sendFeedback(() ->
                 Text.literal("§6[StabShot] §7custom_damage_power → §f" + value), false);
+        return 1;
+    }
+
+    private static int execSetWemmbuRadius(CommandContext<ServerCommandSource> ctx, int value) {
+        StabConfig.wemmbuRadius = value;
+        StabConfig.save();
+        int total = (value * 2 + 1) * (value * 2 + 1);
+        ctx.getSource().sendFeedback(() ->
+                Text.literal("§6[StabShot] §7wemmbu_radius → §f" + value
+                        + " §7(" + total + " column shaft)"), false);
         return 1;
     }
 
@@ -245,4 +259,4 @@ public class StabShotCommand {
             return null;
         }
     }
-}
+                                                                       }
