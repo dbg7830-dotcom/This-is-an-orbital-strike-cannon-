@@ -29,8 +29,11 @@ public class StabConfig {
     /** Blocks above each found surface where legacy visuals begin. */
     public static int columnStartAbove = 1;
 
-    /** Exact X/Z half-width. 0=single, 1=3x3, 2=5x5. */
+    /** Exact X/Z half-width for LEGACY mode. 0=single, 1=3x3, 2=5x5. */
     public static int strikeRadius = 1;
+
+    /** Exact X/Z half-width for WEMMBU mode — separate from legacy so each can be tuned. */
+    public static int wemmbuRadius = 1;
 
     /** Legacy only: max vertical terrain carve depth in blocks. */
     public static int blastDepth = 18;
@@ -103,6 +106,7 @@ public class StabConfig {
             explosionPower  = parseFloat(props, "explosion_power", explosionPower);
             columnStartAbove = parseInt(props, "column_start_above", columnStartAbove);
             strikeRadius    = parseInt(props, "strike_radius", strikeRadius);
+            wemmbuRadius    = parseInt(props, "wemmbu_radius", wemmbuRadius);
             blastDepth      = parseInt(props, "blast_depth", blastDepth);
             destroyTerrain  = parseBoolean(props, "destroy_terrain", destroyTerrain);
             ledgeBlockChance = parseFloat(props, "ledge_block_chance", ledgeBlockChance);
@@ -129,8 +133,10 @@ public class StabConfig {
             w.write("explosion_power=" + explosionPower + "\n\n");
             w.write("# Legacy: blocks above each found surface where blast visuals begin (1=body, 2=head).\n");
             w.write("column_start_above=" + columnStartAbove + "\n\n");
-            w.write("# Exact X/Z half-width. 0=single point, 1=3x3, 2=5x5.\n");
+            w.write("# Exact X/Z half-width for LEGACY mode. 0=single, 1=3x3, 2=5x5.\n");
             w.write("strike_radius=" + strikeRadius + "\n\n");
+            w.write("# Exact X/Z half-width for WEMMBU mode (independent from legacy).\n");
+            w.write("wemmbu_radius=" + wemmbuRadius + "\n\n");
             w.write("# Legacy only: max vertical terrain carve depth in blocks.\n");
             w.write("blast_depth=" + blastDepth + "\n\n");
             w.write("# true=custom terrain carving, false=entity damage + explosion particles only.\n");
