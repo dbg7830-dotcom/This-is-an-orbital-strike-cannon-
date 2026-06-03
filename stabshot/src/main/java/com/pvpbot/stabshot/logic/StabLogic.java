@@ -3,12 +3,17 @@ package com.pvpbot.stabshot.logic;
 import com.pvpbot.stabshot.config.StabConfig;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.EquipmentSlot;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.item.ItemStack;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.registry.Registries;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
 import net.minecraft.sound.SoundEvents;
+import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
@@ -16,35 +21,18 @@ import net.minecraft.util.math.Box;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * StabLogic — Vulgar's OSC
- *
- * Particle system:
- *   Phase 0 (instant with strike): EXPLOSION_EMITTER grid at surface
- *           + dense WHITE_SMOKE filling the entire shaft column top-to-bottom
- *   Phase 1 (+20 ticks / 1s):  medium-density column — fade begins
- *   Phase 2 (+35 ticks / 1.75s): sparse column — nearly gone
- *
- * WHITE_SMOKE is a tall white drifting particle (added in 1.20.4) — the closest
- * vanilla equivalent to the swirling white column seen in the reference screenshots.
- *
- * Terrain: instant clean shaft, ~8% wall blocks kept as random protrusions.
- * Delay: server-tick queue, exact timing, no off-thread scheduling.
- */
 public class StabLogic {
 
     private static final int   WEMMBU_STOP_ABOVE_BOTTOM = 6;
     private static final float UNBREAKABLE_RESISTANCE   = 1_000.0f;
 
     // -------------------------------------------------------------------------
-    // Tick queues — everything runs on the server thread
+    // Tick queues
     // -------------------------------------------------------------------------
 
     private record PendingStrike(ServerWorld world, int x, int y, int z, long fireAtTick) {}
-
-    private record PendingParticles(
-            ServerWorld world, int cx, int topY, int bottomY, int cz,
-            int radius, int phase, long fireAtTick) {}
+    private record PendingParticles(ServerWorld world, int cx, int topY, int bottomY,
+                                    int cz, int radius, int phase, long fireAtTick) {}
 
     private static final List<PendingStrike>    PENDING         = new ArrayList<>();
     private static final List<PendingParticles> PARTICLE_PHASES = new ArrayList<>();
@@ -101,18 +89,11 @@ public class StabLogic {
 
         playSounds(world, cx, topY, cz);
 
-        // Phase 0 — fires with the strike
+        // Single particle phase only â€” fires with the strike, no follow-up bursts
         spawnColumnPhase(world, cx, topY, bottomY, cz, radius, 0);
 
-        // Schedule fading phases
-        long now = world.getServer().getTicks();
-        PARTICLE_PHASES.add(new PendingParticles(
-                world, cx, topY, bottomY, cz, radius, 1, now + 20));
-        PARTICLE_PHASES.add(new PendingParticles(
-                world, cx, topY, bottomY, cz, radius, 2, now + 35));
-
         if (StabConfig.destroyTerrain) carveShaft(world, cx, cz, radius, topY, bottomY);
-        damageEntities(world, cx, bottomY, topY, cz, radius, 1.85f);
+        damageEntities(world, cx, bottomY, topY, cz, radius, 1.0f);
     }
 
     // -------------------------------------------------------------------------
@@ -126,7 +107,6 @@ public class StabLogic {
 
         playSounds(world, x, strikeY, z);
 
-        // Carve columns
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
                 int colX = x + dx, colZ = z + dz;
@@ -135,59 +115,35 @@ public class StabLogic {
             }
         }
 
-        // Same 3-phase EXPLOSION particle column as WEMMBU — no EXPLOSION_EMITTER trash
+        // Single particle phase only
         spawnColumnPhase(world, x, strikeY, bottomY, z, radius, 0);
-        long now = world.getServer().getTicks();
-        PARTICLE_PHASES.add(new PendingParticles(world, x, strikeY, bottomY, z, radius, 1, now + 20));
-        PARTICLE_PHASES.add(new PendingParticles(world, x, strikeY, bottomY, z, radius, 2, now + 35));
-
-        damageEntities(world, x, bottomY, strikeY + 2, z, radius, 1.35f);
+        damageEntities(world, x, bottomY, strikeY + 2, z, radius, 1.0f);
     }
 
     // -------------------------------------------------------------------------
-    // Particle phases — white column that fills the shaft and fades
+    // Particles â€” single phase, fires with the strike
     // -------------------------------------------------------------------------
 
-    /**
-     * EXPLOSION particles per Y-level across the full shaft cross-section.
-     *
-     * THE CRITICAL FIX: uses world.spawnParticles(viewer=null, particle, longDistance=TRUE, ...)
-     * The default overload uses longDistance=false which only sends particles within 32 blocks.
-     * A shaft goes 100+ blocks deep — everything below the player's feet was never sent to client.
-     *
-     * speed=0.0 with non-zero delta = position scatter (not velocity).
-     * Particles spawn randomly within ±xzSpread of center at each Y level.
-     * EXPLOSION particles have no drift, they stay in place and fade on their own.
-     *
-     * Phase 0 (instant): dense — every Y level
-     * Phase 1 (+20 ticks): medium — every 2 Y levels
-     * Phase 2 (+35 ticks): sparse — every 4 Y levels
-     */
     private static void spawnColumnPhase(ServerWorld world,
                                           int cx, int topY, int bottomY,
                                           int cz, int radius, int phase) {
         if (topY < bottomY) return;
 
-        int particleBottom = Math.max(bottomY, topY - 40);
-        double xzSpread = radius + 0.5; // wall-to-wall across shaft
+        double xzSpread = Math.max(0.4, radius * 0.5);
 
-        int yStep, count;
+        int yStep;
         switch (phase) {
-            case 0  -> { yStep = 1; count = Math.max(6,  (radius * 2 + 1) * 2); }
-            case 1  -> { yStep = 2; count = Math.max(3,   radius * 2 + 1);      }
-            default -> { yStep = 4; count = Math.max(2,   radius + 1);          }
+            case 0  -> yStep = 3;
+            case 1  -> yStep = 5;
+            default -> yStep = 8;
         }
 
-        for (int y = topY; y >= particleBottom; y -= yStep) {
-            // Must loop players manually — passing null as viewer crashes in 1.21.1
-            // because the method calls getNetworkHandler() on the viewer directly.
-            // Passing each player with longDistance=true sends to everyone within 512 blocks.
-            for (net.minecraft.server.network.ServerPlayerEntity player : world.getPlayers()) {
+        List<ServerPlayerEntity> players = world.getPlayers();
+        for (int y = topY; y >= bottomY; y -= yStep) {
+            for (ServerPlayerEntity player : players) {
                 world.spawnParticles(player, ParticleTypes.EXPLOSION_EMITTER, true,
                         cx + 0.5, y + 0.5, cz + 0.5,
-                        count,
-                        xzSpread, 0.4, xzSpread,
-                        0.0);
+                        1, xzSpread, 0.3, xzSpread, 0.0);
             }
         }
     }
@@ -201,11 +157,10 @@ public class StabLogic {
         for (int y = topY; y >= bottomY; y--) {
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
-                    // Wall-edge blocks have a small chance to stay as protrusions
                     int cheb = Math.max(Math.abs(dx), Math.abs(dz));
                     if (cheb == radius
-                            && stableChance(cx + dx, y, cz + dz,
-                                            StabConfig.ledgeBlockChance)) continue;
+                            && stableChance(cx + dx, y, cz + dz, StabConfig.ledgeBlockChance))
+                        continue;
                     breakIfPossible(world, cx + dx, y, cz + dz);
                 }
             }
@@ -229,6 +184,74 @@ public class StabLogic {
             double progress = (impactY - y) / (double)(maxDepth + StabConfig.columnStartAbove + 1);
             if (state.getBlock().getBlastResistance() <= 60.0 * (1.0 - progress * 0.6))
                 world.breakBlock(pos, false);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Entity damage â€” shield blocking, armor/shield durability, living only
+    // -------------------------------------------------------------------------
+
+    private static void damageEntities(ServerWorld world, int cx, int minY, int maxY,
+                                        int cz, int radius, float mult) {
+        double reach = radius + 0.75;
+        Box box = new Box(cx + 0.5 - reach, minY, cz + 0.5 - reach,
+                          cx + 0.5 + reach, maxY + 1.0, cz + 0.5 + reach);
+
+        for (Entity entity : world.getOtherEntities(null, box, Entity::isAlive)) {
+            if (!(entity instanceof LivingEntity living)) continue;
+
+            double dist = Math.max(Math.abs(living.getX() - (cx + 0.5)),
+                                   Math.abs(living.getZ() - (cz + 0.5)));
+            if (dist > reach) continue;
+
+            float baseDmg = (float)(StabConfig.explosionPower * 2.0 * mult
+                    * (1.0 - (dist / (reach + 1.0)) * 0.55));
+
+            if (living.isBlocking()) {
+                // Shield block â€” launch upward, destroy shield, no HP damage
+                living.setVelocity(
+                        living.getVelocity().x * 0.2,
+                        1.3,
+                        living.getVelocity().z * 0.2);
+                living.velocityModified = true;
+
+                // Damage shield enough to instantly break unenchanted ones.
+                // A normal shield has 336 durability â€” we deal max+1 which
+                // guarantees a break on unenchanted gear.
+                // Unbreaking enchantment applies its own reduction per-point
+                // internally, so enchanted shields will survive proportionally.
+                Hand activeHand = living.getActiveHand();
+                if (activeHand != null) {
+                    ItemStack shield = living.getActiveItem();
+                    if (!shield.isEmpty()) {
+                        EquipmentSlot shieldSlot = activeHand == Hand.MAIN_HAND
+                                ? EquipmentSlot.MAINHAND : EquipmentSlot.OFFHAND;
+                        // shield.getMaxDamage() + 1 = enough to always snap an
+                        // unenchanted shield in one hit, with proper vanilla
+                        // break animation/sound played automatically by damage()
+                        shield.damage(shield.getMaxDamage() + 1, living, shieldSlot);
+                    }
+                }
+                continue;
+            }
+
+            if (baseDmg <= 0) continue;
+
+            living.damage(world.getDamageSources().explosion(null, null), baseDmg);
+
+            // Armor durability: random 53â€“90 per piece, weighted toward lower values.
+            // Using r^1.5 distribution: r^1.5 < r for 0 < r < 1 so values cluster
+            // near the low end (53â€“65) rather than being uniform across the range.
+            for (EquipmentSlot slot : new EquipmentSlot[]{
+                    EquipmentSlot.HEAD, EquipmentSlot.CHEST,
+                    EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+                ItemStack armor = living.getEquippedStack(slot);
+                if (!armor.isEmpty()) {
+                    double r = living.getRandom().nextDouble();
+                    int armorDmg = 53 + (int)((90 - 53) * Math.pow(r, 1.5));
+                    armor.damage(armorDmg, living, slot);
+                }
+            }
         }
     }
 
@@ -286,25 +309,6 @@ public class StabLogic {
     }
 
     // -------------------------------------------------------------------------
-    // Entity damage
-    // -------------------------------------------------------------------------
-
-    private static void damageEntities(ServerWorld world, int cx, int minY, int maxY,
-                                        int cz, int radius, float mult) {
-        double reach = radius + 0.75;
-        Box box = new Box(cx + 0.5 - reach, minY, cz + 0.5 - reach,
-                          cx + 0.5 + reach, maxY + 1.0, cz + 0.5 + reach);
-        for (Entity e : world.getOtherEntities(null, box, Entity::isAlive)) {
-            double dist = Math.max(Math.abs(e.getX() - (cx + 0.5)),
-                                   Math.abs(e.getZ() - (cz + 0.5)));
-            if (dist > reach) continue;
-            float dmg = (float)(StabConfig.explosionPower * 4.0 * mult
-                    * (1.0 - (dist / (reach + 1.0)) * 0.55));
-            if (dmg > 0) e.damage(world.getDamageSources().explosion(null, null), dmg);
-        }
-    }
-
-    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -320,4 +324,4 @@ public class StabLogic {
         return !state.isAir()
                 && state.getBlock().getBlastResistance() < UNBREAKABLE_RESISTANCE;
     }
-                }
+                                            }
