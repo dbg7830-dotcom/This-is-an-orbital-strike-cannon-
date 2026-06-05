@@ -85,6 +85,7 @@ public class StabLogic {
     private static void summonWemmbu(ServerWorld world, int cx, int cz) {
         int radius  = Math.max(0, StabConfig.wemmbuRadius);
         int bottomY = world.getBottomY() + WEMMBU_STOP_ABOVE_BOTTOM;
+        int topY    = Math.max(findHighestSurfaceInFootprint(world, cx, cz, radius), bottomY);
 
         playSounds(world, cx, topY, cz);
 
@@ -320,4 +321,4 @@ public class StabLogic {
         return !state.isAir()
                 && state.getBlock().getBlastResistance() < UNBREAKABLE_RESISTANCE;
     }
-                 }
+                }
