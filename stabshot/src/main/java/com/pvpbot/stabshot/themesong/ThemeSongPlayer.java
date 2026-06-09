@@ -20,7 +20,7 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * ThemeSongPlayer v7 — streams OGG directly from disk via FabricSoundInstance.
- * Fixed for Fabric 1.21.1 — properly wraps OggAudioStream without image processing.
+ * Fixed for Fabric 1.21.1 — uses OggAudioStream directly without wrapper.
  * Works on PC + Android (Zalith/Pojav).
  *
  * Song format: OGG Vorbis (.ogg), mono recommended.
@@ -153,9 +153,7 @@ public class ThemeSongPlayer {
                                                               boolean repeatInstantly) {
             return CompletableFuture.supplyAsync(() -> {
                 try {
-                    return new LoopingAudioStream(
-                            new OggAudioStream(Files.newInputStream(oggPath))
-                    );
+                    return new OggAudioStream(Files.newInputStream(oggPath));
                 } catch (IOException e) {
                     throw new RuntimeException(
                         "StabShot: failed to open OGG: " + oggPath.getFileName() + " - " + e.getMessage(), e);
