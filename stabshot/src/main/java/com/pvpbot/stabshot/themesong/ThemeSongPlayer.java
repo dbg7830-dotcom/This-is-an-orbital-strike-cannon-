@@ -20,7 +20,7 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * ThemeSongPlayer v8 — streams OGG directly from disk via FabricSoundInstance.
- * Fixed for Fabric 1.21.1 — uses proper AudioStream that doesn't trigger image processing.
+ * Fixed for Fabric 1.21.1 — proper synchronous AudioStream handling.
  * Works on PC + Android (Zalith/Pojav).
  *
  * Song format: OGG Vorbis (.ogg), mono recommended.
@@ -135,6 +135,7 @@ public class ThemeSongPlayer {
     static class DiskSoundInstance extends AbstractSoundInstance implements FabricSoundInstance {
 
         private final Path oggPath;
+        private AudioStream cachedStream = null;
 
         DiskSoundInstance(Path oggPath) {
             super(DUMMY_SOUND_EVENT, SoundCategory.MASTER, Random.create());
@@ -151,14 +152,17 @@ public class ThemeSongPlayer {
         public CompletableFuture<AudioStream> getAudioStream(SoundLoader loader,
                                                               Identifier id,
                                                               boolean repeatInstantly) {
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    return new OggAudioStream(Files.newInputStream(oggPath));
-                } catch (IOException e) {
-                    throw new RuntimeException(
-                        "StabShot: failed to open OGG: " + oggPath + " - " + e.getMessage(), e);
+            // Create stream synchronously on render thread, not on IO thread
+            try {
+                if (cachedStream == null) {
+                    cachedStream = new OggAudioStream(Files.newInputStream(oggPath));
                 }
-            }, net.fabricmc.fabric.api.client.render.fluid.FluidRenderHandlerRegistry.class.getClassLoader().getParent().getParent());
+                return CompletableFuture.completedFuture(cachedStream);
+            } catch (IOException e) {
+                return CompletableFuture.failedFuture(
+                    new RuntimeException("StabShot: failed to open OGG: " + oggPath + " - " + e.getMessage(), e)
+                );
+            }
         }
     }
 }
