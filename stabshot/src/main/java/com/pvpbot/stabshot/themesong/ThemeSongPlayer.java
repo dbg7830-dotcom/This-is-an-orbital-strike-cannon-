@@ -19,9 +19,9 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * ThemeSongPlayer v6 — streams OGG directly from disk via FabricSoundInstance.
- * Anchored to stabshot:dummy which is declared in sounds.json with stream=true.
- * No resource reload needed. Works on PC + Android (Zalith/Pojav).
+ * ThemeSongPlayer v7 — streams OGG directly from disk via FabricSoundInstance.
+ * Fixed for Fabric 1.21.1 — properly wraps OggAudioStream without image processing.
+ * Works on PC + Android (Zalith/Pojav).
  *
  * Song format: OGG Vorbis (.ogg), mono recommended.
  * Songs folder: .minecraft/config/stabshot/songs/
@@ -72,11 +72,13 @@ public class ThemeSongPlayer {
                 currentSong = capturedName;
                 playing     = true;
             } catch (Exception e) {
+                playing = false;
                 if (client.player != null) {
                     client.player.sendMessage(
-                        net.minecraft.text.Text.literal("§c[StabShot] Play error: " + e.getMessage()),
+                        net.minecraft.text.Text.literal("§c[StabShot] Play error: " + e.getClass().getSimpleName() + ": " + e.getMessage()),
                         false);
                 }
+                e.printStackTrace();
             }
         });
 
@@ -151,13 +153,12 @@ public class ThemeSongPlayer {
                                                               boolean repeatInstantly) {
             return CompletableFuture.supplyAsync(() -> {
                 try {
-                    return new RepeatingAudioStream(
-                            OggAudioStream::new,
-                            Files.newInputStream(oggPath)
+                    return new LoopingAudioStream(
+                            new OggAudioStream(Files.newInputStream(oggPath))
                     );
                 } catch (IOException e) {
                     throw new RuntimeException(
-                        "StabShot: failed to open OGG: " + oggPath.getFileName(), e);
+                        "StabShot: failed to open OGG: " + oggPath.getFileName() + " - " + e.getMessage(), e);
                 }
             });
         }
