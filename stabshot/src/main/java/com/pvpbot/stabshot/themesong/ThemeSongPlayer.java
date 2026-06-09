@@ -33,6 +33,7 @@ public class ThemeSongPlayer {
 
     // Matches the entry in src/main/resources/assets/stabshot/sounds.json
     private static final Identifier DUMMY_ID = Identifier.of("stabshot", "dummy");
+    private static final SoundEvent DUMMY_SOUND_EVENT = SoundEvent.of(DUMMY_ID);
 
     private static DiskSoundInstance currentInstance = null;
     private static String            currentSong     = null;
@@ -134,7 +135,7 @@ public class ThemeSongPlayer {
         private final Path oggPath;
 
         DiskSoundInstance(Path oggPath) {
-            super(SoundEvent.of(DUMMY_ID), SoundCategory.MASTER, Random.create());
+            super(DUMMY_SOUND_EVENT, SoundCategory.MASTER, Random.create());
             this.oggPath         = oggPath;
             this.volume          = 1.0f;
             this.pitch           = 1.0f;
