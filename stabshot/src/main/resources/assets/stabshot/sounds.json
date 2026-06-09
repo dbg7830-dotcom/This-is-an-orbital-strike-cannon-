@@ -1,4 +1,13 @@
 {
+  "dummy": {
+    "sounds": [
+      {
+        "name": "stabshot:dummy",
+        "stream": true
+      }
+    ],
+    "subtitle": ""
+  },
   "explosion1": {
     "sounds": [
       {
