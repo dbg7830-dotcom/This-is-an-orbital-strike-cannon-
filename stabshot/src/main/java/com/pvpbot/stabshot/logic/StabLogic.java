@@ -26,10 +26,6 @@ public class StabLogic {
     private static final int   WEMMBU_STOP_ABOVE_BOTTOM = 6;
     private static final float UNBREAKABLE_RESISTANCE   = 1_000.0f;
 
-    // -------------------------------------------------------------------------
-    // Tick queues
-    // -------------------------------------------------------------------------
-
     private record PendingStrike(ServerWorld world, int x, int y, int z, long fireAtTick) {}
     private record PendingParticles(ServerWorld world, int cx, int topY, int bottomY,
                                     int cz, int radius, int phase, long fireAtTick) {}
@@ -59,10 +55,6 @@ public class StabLogic {
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Entry point
-    // -------------------------------------------------------------------------
-
     public static void summonStab(ServerWorld world, int x, int y, int z) {
         int delay = Math.max(0, StabConfig.fireDelayTicks);
         if (delay <= 0) {
@@ -78,27 +70,17 @@ public class StabLogic {
         else                           summonLegacy(world, x, y, z);
     }
 
-    // -------------------------------------------------------------------------
-    // WEMMBU mode
-    // -------------------------------------------------------------------------
-
     private static void summonWemmbu(ServerWorld world, int cx, int cz) {
         int radius  = Math.max(0, StabConfig.wemmbuRadius);
         int bottomY = world.getBottomY() + WEMMBU_STOP_ABOVE_BOTTOM;
         int topY    = Math.max(findHighestSurfaceInFootprint(world, cx, cz, radius), bottomY);
 
         playSounds(world, cx, topY, cz);
-
-        // Single particle phase only — fires with the strike, no follow-up bursts
         spawnColumnPhase(world, cx, topY, bottomY, cz, radius, 0);
 
         if (StabConfig.destroyTerrain) carveShaft(world, cx, cz, radius, topY, bottomY);
         damageEntities(world, cx, bottomY, topY, cz, radius, 1.0f);
     }
-
-    // -------------------------------------------------------------------------
-    // LEGACY mode
-    // -------------------------------------------------------------------------
 
     private static void summonLegacy(ServerWorld world, int x, int y, int z) {
         int radius  = Math.max(0, StabConfig.strikeRadius);
@@ -115,14 +97,9 @@ public class StabLogic {
             }
         }
 
-        // Single particle phase only
         spawnColumnPhase(world, x, strikeY, bottomY, z, radius, 0);
         damageEntities(world, x, bottomY, strikeY + 2, z, radius, 1.0f);
     }
-
-    // -------------------------------------------------------------------------
-    // Particles — single phase, fires with the strike
-    // -------------------------------------------------------------------------
 
     private static void spawnColumnPhase(ServerWorld world,
                                           int cx, int topY, int bottomY,
@@ -147,10 +124,6 @@ public class StabLogic {
             }
         }
     }
-
-    // -------------------------------------------------------------------------
-    // Terrain carving
-    // -------------------------------------------------------------------------
 
     private static void carveShaft(ServerWorld world, int cx, int cz,
                                     int radius, int topY, int bottomY) {
@@ -187,10 +160,6 @@ public class StabLogic {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Entity damage — shield blocking, armor/shield durability, living only
-    // -------------------------------------------------------------------------
-
     private static void damageEntities(ServerWorld world, int cx, int minY, int maxY,
                                         int cz, int radius, float mult) {
         double reach = radius + 0.75;
@@ -208,9 +177,6 @@ public class StabLogic {
                     * (1.0 - (dist / (reach + 1.0)) * 0.55));
 
             if (living.isBlocking()) {
-                // Shield block — launch upward, break shield, no HP damage.
-                // addVelocity delta (not setVelocity) because addVelocity internally
-                // triggers the velocity sync packet to the player client.
                 double curX = living.getVelocity().x;
                 double curY = living.getVelocity().y;
                 double curZ = living.getVelocity().z;
@@ -232,8 +198,6 @@ public class StabLogic {
 
             living.damage(world.getDamageSources().explosion(null, null), baseDmg);
 
-            // takeKnockback(strength, dx, dz) — dx/dz = direction FROM explosion TO entity
-            // = pushes entity away from shaft center. Scales with proximity.
             double kbStrength = 0.55 * (1.0 - dist / (reach + 1.0));
             living.takeKnockback(
                     kbStrength,
@@ -252,17 +216,13 @@ public class StabLogic {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Sounds
-    // -------------------------------------------------------------------------
-
     private static void playSounds(ServerWorld world, int x, int y, int z) {
-        playCustomSound(world, x, y + 15, z, "stabshot:explosion2", 6.0f, 0.75f);
-        playCustomSound(world, x, y,      z, "stabshot:explosion1", 6.0f, 0.55f);
+        playCustomSound(world, x, y + 15, z, "stabshot:explosion2", 20.0f, 0.75f);
+        playCustomSound(world, x, y,      z, "stabshot:explosion1", 20.0f, 0.55f);
         float[] pitches = { 0.50f, 0.60f, 0.68f, 0.76f, 0.85f, 0.95f };
         for (float p : pitches)
             world.playSound(null, x + 0.5, y, z + 0.5,
-                    SoundEvents.ENTITY_GENERIC_EXPLODE, SoundCategory.MASTER, 6.0f, p);
+                    SoundEvents.ENTITY_GENERIC_EXPLODE, SoundCategory.MASTER, 20.0f, p);
     }
 
     private static void playCustomSound(ServerWorld world, int x, int y, int z,
@@ -273,10 +233,6 @@ public class StabLogic {
                 world.playSound(null, x + 0.5, y, z + 0.5, ev, SoundCategory.MASTER, vol, pitch);
         } catch (Exception ignored) {}
     }
-
-    // -------------------------------------------------------------------------
-    // Surface finding
-    // -------------------------------------------------------------------------
 
     private static int findHighestSurfaceInFootprint(ServerWorld world,
                                                       int cx, int cz, int radius) {
@@ -305,10 +261,6 @@ public class StabLogic {
         return targetY;
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
     private static boolean stableChance(int x, int y, int z, double chance) {
         if (chance <= 0) return false;
         if (chance >= 1) return true;
@@ -321,4 +273,4 @@ public class StabLogic {
         return !state.isAir()
                 && state.getBlock().getBlastResistance() < UNBREAKABLE_RESISTANCE;
     }
-                }
+}
