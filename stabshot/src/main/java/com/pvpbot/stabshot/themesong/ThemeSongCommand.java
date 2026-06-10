@@ -12,8 +12,11 @@ import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.arg
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
 /**
- * ThemeSongCommand — /ts play, /ts stop, /ts list.
- * Client-side only. Works on any server, no server-side mod needed.
+ * /ts play <song>       — play once
+ * /ts play <song> on    — loop forever
+ * /ts play <song> off   — play once (explicit)
+ * /ts stop              — stop playback
+ * /ts list              — list available songs
  */
 @Environment(EnvType.CLIENT)
 public class ThemeSongCommand {
@@ -21,29 +24,34 @@ public class ThemeSongCommand {
     public static void register() {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
             dispatcher.register(literal("ts")
+
                 .then(literal("play")
-                    .then(argument("song", StringArgumentType.greedyString())
+                    .then(argument("song", StringArgumentType.string())
                         .suggests((ctx, builder) -> {
                             ThemeSongPlayer.getSongNames().forEach(builder::suggest);
                             return builder.buildFuture();
                         })
-                        .executes(ThemeSongCommand::execPlay)))
-                .then(literal("stop")
-                    .executes(ThemeSongCommand::execStop))
-                .then(literal("list")
-                    .executes(ThemeSongCommand::execList))
+                        .then(literal("on") .executes(ctx -> execPlay(ctx, true)))
+                        .then(literal("off").executes(ctx -> execPlay(ctx, false)))
+                        .executes(ctx -> execPlay(ctx, false))
+                    )
+                )
+
+                .then(literal("stop").executes(ThemeSongCommand::execStop))
+                .then(literal("list").executes(ThemeSongCommand::execList))
             )
         );
     }
 
-    private static int execPlay(CommandContext<FabricClientCommandSource> ctx) {
+    private static int execPlay(CommandContext<FabricClientCommandSource> ctx, boolean loop) {
         String song = StringArgumentType.getString(ctx, "song");
-        String err  = ThemeSongPlayer.play(song);
+        String err  = ThemeSongPlayer.play(song, loop);
         if (err != null) {
             ctx.getSource().sendFeedback(Text.literal("§c✘ " + err));
         } else {
+            String loopInfo = loop ? " §7(looping — §f/ts stop §7to end)" : " §7(once)";
             ctx.getSource().sendFeedback(
-                    Text.literal("§a♪ Now playing: §f" + song + " §7(looping)"));
+                Text.literal("§a♪ Now playing: §f" + song + loopInfo));
         }
         return 1;
     }
@@ -53,9 +61,11 @@ public class ThemeSongCommand {
             ctx.getSource().sendFeedback(Text.literal("§7No song is currently playing."));
             return 0;
         }
-        String was = ThemeSongPlayer.getCurrentSong();
+        String  was        = ThemeSongPlayer.getCurrentSong();
+        boolean wasLooping = ThemeSongPlayer.isLooping();
         ThemeSongPlayer.stop();
-        ctx.getSource().sendFeedback(Text.literal("§7■ Stopped: §f" + was));
+        ctx.getSource().sendFeedback(Text.literal(
+            "§7■ Stopped: §f" + was + (wasLooping ? " §7(was looping)" : "")));
         return 1;
     }
 
@@ -63,13 +73,13 @@ public class ThemeSongCommand {
         var songs = ThemeSongPlayer.getSongNames();
         if (songs.isEmpty()) {
             ctx.getSource().sendFeedback(Text.literal(
-                    "§7No songs found. Add §f.ogg §7files to: §f"
-                    + ThemeSongPlayer.getSongsDir()));
+                "§7No songs found. Add §f.ogg §7or §f.mp3 §7files to:\n§f"
+                + ThemeSongPlayer.getSongsDir()));
             return 1;
         }
         ctx.getSource().sendFeedback(Text.literal("§6§lSongs (" + songs.size() + "):"));
         songs.forEach(s -> ctx.getSource().sendFeedback(Text.literal("§7 • §f" + s)));
-        ctx.getSource().sendFeedback(Text.literal("§7Play with: §f/ts play <name>"));
+        ctx.getSource().sendFeedback(Text.literal("§7Usage: §f/ts play <name> §8[on/off]"));
         return 1;
     }
 }
