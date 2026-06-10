@@ -16,10 +16,10 @@ import javax.sound.sampled.AudioFormat;
 
 import java.io.*;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Environment(EnvType.CLIENT)
 public class ThemeSongPlayer {
@@ -33,6 +33,9 @@ public class ThemeSongPlayer {
     private static String            currentSong     = null;
     private static boolean           playing         = false;
     private static boolean           looping         = false;
+
+    private static Thread        loopThread  = null;
+    private static AtomicBoolean loopActive  = new AtomicBoolean(false);
 
     public static String play(String name, boolean loop) {
         stop();
@@ -59,45 +62,120 @@ public class ThemeSongPlayer {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client == null) return "Client not ready.";
 
-        final Path    capturedFile = file;
-        final String  capturedName = name;
-        final String  capturedExt  = ext;
-        final boolean capturedLoop = loop;
+        final Path   fFile = file;
+        final String fName = name;
+        final String fExt  = ext;
 
-        client.execute(() -> {
-            try {
-                DiskSoundInstance inst = new DiskSoundInstance(capturedFile, capturedExt, capturedLoop);
-                client.getSoundManager().play(inst);
-                currentInstance = inst;
-                currentSong     = capturedName;
-                playing         = true;
-                looping         = capturedLoop;
-            } catch (Exception e) {
-                playing = false;
-                if (client.player != null) {
-                    client.player.sendMessage(
-                        net.minecraft.text.Text.literal(
-                            "§c[StabShot] Play error: " + e.getClass().getSimpleName()
-                            + ": " + e.getMessage()), false);
+        currentSong = name;
+        playing     = true;
+        looping     = loop;
+
+        if (loop) {
+            loopActive.set(true);
+            loopThread = new Thread(() -> {
+                while (loopActive.get()) {
+                    long durationMs = estimateDurationMs(fFile, fExt);
+                    if (durationMs <= 0) durationMs = 3000;
+
+                    DiskSoundInstance inst = new DiskSoundInstance(fFile, fExt);
+                    client.execute(() -> {
+                        synchronized (ThemeSongPlayer.class) {
+                            currentInstance = inst;
+                        }
+                        client.getSoundManager().play(inst);
+                    });
+
+                    try {
+                        Thread.sleep(durationMs);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+
+                    client.execute(() -> {
+                        synchronized (ThemeSongPlayer.class) {
+                            if (currentInstance != null) {
+                                client.getSoundManager().stop(currentInstance);
+                            }
+                        }
+                    });
                 }
-                e.printStackTrace();
-            }
-        });
+            }, "StabShot-LoopThread");
+            loopThread.setDaemon(true);
+            loopThread.start();
+        } else {
+            DiskSoundInstance inst = new DiskSoundInstance(fFile, fExt);
+            client.execute(() -> {
+                try {
+                    synchronized (ThemeSongPlayer.class) {
+                        currentInstance = inst;
+                    }
+                    client.getSoundManager().play(inst);
+                } catch (Exception e) {
+                    playing = false;
+                    if (client.player != null) {
+                        client.player.sendMessage(
+                            net.minecraft.text.Text.literal(
+                                "§c[StabShot] Play error: " + e.getMessage()), false);
+                    }
+                }
+            });
+        }
 
         return null;
     }
 
-    public static void stop() {
-        if (currentInstance == null) { playing = false; currentSong = null; looping = false; return; }
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client != null) {
-            final DiskSoundInstance inst = currentInstance;
-            client.execute(() -> client.getSoundManager().stop(inst));
+    private static long estimateDurationMs(Path file, String ext) {
+        try {
+            if (ext.equals("mp3")) {
+                long totalMs = 0;
+                try (InputStream in = new BufferedInputStream(Files.newInputStream(file))) {
+                    Bitstream bs = new Bitstream(in);
+                    Header h;
+                    while ((h = bs.readFrame()) != null) {
+                        totalMs += (long) h.msPerFrame();
+                        bs.closeFrame();
+                    }
+                    bs.close();
+                }
+                return totalMs;
+            } else {
+                try (InputStream in = new BufferedInputStream(Files.newInputStream(file))) {
+                    OggAudioStream ogg = new OggAudioStream(in);
+                    AudioFormat fmt = ogg.getFormat();
+                    int sr = (int) fmt.getSampleRate();
+                    int ch = fmt.getChannels();
+                    long totalBytes = 0;
+                    ByteBuffer buf;
+                    while ((buf = ogg.read(8192)) != null && buf.remaining() > 0) {
+                        totalBytes += buf.remaining();
+                    }
+                    ogg.close();
+                    if (sr <= 0 || ch <= 0) return 0;
+                    return (totalBytes * 1000L) / (sr * ch * 2L);
+                }
+            }
+        } catch (Exception e) {
+            return 0;
         }
-        currentInstance = null;
-        currentSong     = null;
-        playing         = false;
-        looping         = false;
+    }
+
+    public static void stop() {
+        loopActive.set(false);
+        if (loopThread != null) {
+            loopThread.interrupt();
+            loopThread = null;
+        }
+        if (currentInstance != null) {
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (client != null) {
+                final DiskSoundInstance inst = currentInstance;
+                client.execute(() -> client.getSoundManager().stop(inst));
+            }
+            currentInstance = null;
+        }
+        currentSong = null;
+        playing     = false;
+        looping     = false;
     }
 
     public static List<String> getSongNames() {
@@ -130,18 +208,16 @@ public class ThemeSongPlayer {
     @Environment(EnvType.CLIENT)
     static class DiskSoundInstance extends AbstractSoundInstance implements FabricSoundInstance {
 
-        private final Path    filePath;
-        private final String  ext;
-        private final boolean doLoop;
+        private final Path   filePath;
+        private final String ext;
 
-        DiskSoundInstance(Path filePath, String ext, boolean doLoop) {
+        DiskSoundInstance(Path filePath, String ext) {
             super(DUMMY_SOUND_EVENT, SoundCategory.MASTER, Random.create());
             this.filePath        = filePath;
             this.ext             = ext;
-            this.doLoop          = doLoop;
             this.volume          = 1.0f;
             this.pitch           = 1.0f;
-            this.repeat          = doLoop;
+            this.repeat          = false;
             this.repeatDelay     = 0;
             this.relative        = true;
             this.attenuationType = SoundInstance.AttenuationType.NONE;
@@ -188,12 +264,8 @@ public class ThemeSongPlayer {
             while ((overflowBytes.length - overflowPos) < size) {
                 if (!decodeNextFrame()) break;
             }
-
             int available = overflowBytes.length - overflowPos;
-            if (available <= 0) {
-                return ByteBuffer.allocateDirect(0);
-            }
-
+            if (available <= 0) return ByteBuffer.allocateDirect(0);
             int toReturn = Math.min(size, available);
             ByteBuffer buf = ByteBuffer.allocateDirect(toReturn);
             buf.put(overflowBytes, overflowPos, toReturn);
@@ -206,24 +278,18 @@ public class ThemeSongPlayer {
             try {
                 Header header = bitstream.readFrame();
                 if (header == null) return false;
-
                 if (!headerRead) {
-sampleRate = header.frequency();
+                    sampleRate = header.frequency();
                     channels   = (header.mode() == Header.SINGLE_CHANNEL) ? 1 : 2;
                     headerRead = true;
                 }
-
                 SampleBuffer output = (SampleBuffer) decoder.decodeFrame(header, bitstream);
                 bitstream.closeFrame();
-
                 short[] samples = output.getBuffer();
                 int     count   = output.getBufferLength();
-
                 int remaining = overflowBytes.length - overflowPos;
                 byte[] newBuf = new byte[remaining + count * 2];
-                if (remaining > 0) {
-                    System.arraycopy(overflowBytes, overflowPos, newBuf, 0, remaining);
-                }
+                if (remaining > 0) System.arraycopy(overflowBytes, overflowPos, newBuf, 0, remaining);
                 int off = remaining;
                 for (int i = 0; i < count; i++) {
                     short s = samples[i];
@@ -233,7 +299,6 @@ sampleRate = header.frequency();
                 overflowBytes = newBuf;
                 overflowPos   = 0;
                 return true;
-
             } catch (BitstreamException e) {
                 if (e.getErrorCode() == BitstreamErrors.STREAM_EOF) return false;
                 throw new IOException("MP3 bitstream error: " + e.getMessage(), e);
@@ -244,17 +309,10 @@ sampleRate = header.frequency();
 
         @Override
         public AudioFormat getFormat() {
-            // javax.sound.sampled.AudioFormat — actual return type of AudioStream.getFormat()
-            // PCM_SIGNED, 16-bit, little-endian (matches byte order written in decodeNextFrame)
             int frameSize = channels * 2;
             return new AudioFormat(
                 AudioFormat.Encoding.PCM_SIGNED,
-                sampleRate,
-                16,
-                channels,
-                frameSize,
-                sampleRate,
-                false
+                sampleRate, 16, channels, frameSize, sampleRate, false
             );
         }
 
@@ -263,4 +321,4 @@ sampleRate = header.frequency();
             try { bitstream.close(); } catch (BitstreamException ignored) {}
         }
     }
-}
+                        }
