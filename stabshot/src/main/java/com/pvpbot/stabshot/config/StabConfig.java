@@ -30,10 +30,10 @@ public class StabConfig {
     public static int columnStartAbove = 1;
 
     /** Exact X/Z half-width for LEGACY mode. 0=single, 1=3x3, 2=5x5. */
-    public static int strikeRadius = 1;
+    public static float strikeRadius = 1;
 
     /** Exact X/Z half-width for WEMMBU mode — separate from legacy so each can be tuned. */
-    public static int wemmbuRadius = 1;
+    public static float wemmbuRadius = 1;
 
     /** Legacy only: max vertical terrain carve depth in blocks. */
     public static int blastDepth = 18;
@@ -92,7 +92,6 @@ public class StabConfig {
             StabShotMod.LOGGER.error("[StabShot] Hot-reload check failed: {}", e.getMessage());
         }
     }
-
     public static void load() {
         if (configFile == null) {
             configFile = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
