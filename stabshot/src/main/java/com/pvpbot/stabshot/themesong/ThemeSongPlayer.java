@@ -1,5 +1,6 @@
 package com.pvpbot.stabshot.themesong;
 
+import javazoom.jl.decoder.*;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.sound.v1.FabricSoundInstance;
@@ -11,11 +12,9 @@ import net.minecraft.sound.SoundEvent;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.random.Random;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
@@ -24,15 +23,24 @@ public class ThemeSongPlayer {
 
     public static final String SONGS_FOLDER = "stabshot/songs";
 
-    // Must match the entry in assets/stabshot/sounds.json
-    private static final Identifier  DUMMY_ID          = Identifier.of("stabshot", "dummy");
-    private static final SoundEvent  DUMMY_SOUND_EVENT = SoundEvent.of(DUMMY_ID);
+    private static final Identifier DUMMY_ID          = Identifier.of("stabshot", "dummy");
+    private static final SoundEvent DUMMY_SOUND_EVENT = SoundEvent.of(DUMMY_ID);
 
     private static DiskSoundInstance currentInstance = null;
     private static String            currentSong     = null;
     private static boolean           playing         = false;
+    private static boolean           looping         = false;
 
-    public static String play(String name) {
+    // ------------------------------------------------------------------
+    // Play
+    // ------------------------------------------------------------------
+
+    /**
+     * @param name song name without extension
+     * @param loop true = repeat forever until /ts stop
+     * @return null on success, error string on failure
+     */
+    public static String play(String name, boolean loop) {
         stop();
 
         Path songsDir = getSongsDir();
@@ -41,34 +49,43 @@ public class ThemeSongPlayer {
             catch (Exception e) { return "Could not create songs folder: " + e.getMessage(); }
         }
 
-        Path oggFile = songsDir.resolve(name + ".ogg");
-        if (!Files.exists(oggFile)) {
-            return "§cSong not found: §f" + name + ".ogg\n"
-                 + "§7Put .ogg files in: §f" + songsDir + "\n"
+        // Try .ogg first, then .mp3
+        Path   file = null;
+        String ext  = null;
+        for (String e : new String[]{"ogg", "mp3"}) {
+            Path candidate = songsDir.resolve(name + "." + e);
+            if (Files.exists(candidate)) { file = candidate; ext = e; break; }
+        }
+
+        if (file == null) {
+            return "§cSong not found: §f" + name + ".ogg §7or §f" + name + ".mp3\n"
+                 + "§7Put audio files in: §f" + songsDir + "\n"
                  + "§7Available: §f" + String.join(", ", getSongNames());
         }
 
         MinecraftClient client = MinecraftClient.getInstance();
         if (client == null) return "Client not ready.";
 
-        final String capturedName = name;
-        final Path   capturedFile = oggFile;
+        final Path    capturedFile = file;
+        final String  capturedName = name;
+        final String  capturedExt  = ext;
+        final boolean capturedLoop = loop;
 
         client.execute(() -> {
             try {
-                DiskSoundInstance inst = new DiskSoundInstance(capturedFile);
+                DiskSoundInstance inst = new DiskSoundInstance(capturedFile, capturedExt, capturedLoop);
                 client.getSoundManager().play(inst);
                 currentInstance = inst;
                 currentSong     = capturedName;
                 playing         = true;
+                looping         = capturedLoop;
             } catch (Exception e) {
                 playing = false;
                 if (client.player != null) {
                     client.player.sendMessage(
                         net.minecraft.text.Text.literal(
                             "§c[StabShot] Play error: " + e.getClass().getSimpleName()
-                            + ": " + e.getMessage()),
-                        false);
+                            + ": " + e.getMessage()), false);
                 }
                 e.printStackTrace();
             }
@@ -77,8 +94,12 @@ public class ThemeSongPlayer {
         return null;
     }
 
+    // ------------------------------------------------------------------
+    // Stop
+    // ------------------------------------------------------------------
+
     public static void stop() {
-        if (currentInstance == null) { playing = false; currentSong = null; return; }
+        if (currentInstance == null) { playing = false; currentSong = null; looping = false; return; }
         MinecraftClient client = MinecraftClient.getInstance();
         if (client != null) {
             final DiskSoundInstance inst = currentInstance;
@@ -87,59 +108,180 @@ public class ThemeSongPlayer {
         currentInstance = null;
         currentSong     = null;
         playing         = false;
+        looping         = false;
     }
+
+    // ------------------------------------------------------------------
+    // Song list — finds both .ogg and .mp3
+    // ------------------------------------------------------------------
 
     public static List<String> getSongNames() {
         List<String> names = new ArrayList<>();
         Path dir = getSongsDir();
         if (!Files.exists(dir)) return names;
-        File[] files = dir.toFile().listFiles(
-                f -> f.isFile() && f.getName().toLowerCase().endsWith(".ogg"));
+        File[] files = dir.toFile().listFiles(f -> {
+            if (!f.isFile()) return false;
+            String n = f.getName().toLowerCase();
+            return n.endsWith(".ogg") || n.endsWith(".mp3");
+        });
         if (files == null) return names;
         for (File f : files) {
             String n = f.getName();
-            names.add(n.substring(0, n.length() - 4));
+            int dot = n.lastIndexOf('.');
+            names.add(dot > 0 ? n.substring(0, dot) : n);
         }
         Collections.sort(names);
         return names;
     }
 
     public static boolean isPlaying()      { return playing; }
+    public static boolean isLooping()      { return looping; }
     public static String  getCurrentSong() { return currentSong; }
 
     public static Path getSongsDir() {
         return FabricLoader.getInstance().getConfigDir().resolve(SONGS_FOLDER);
     }
 
+    // ------------------------------------------------------------------
+    // DiskSoundInstance — routes to OGG or MP3 stream
+    // ------------------------------------------------------------------
+
     @Environment(EnvType.CLIENT)
     static class DiskSoundInstance extends AbstractSoundInstance implements FabricSoundInstance {
 
-        private final Path oggPath;
+        private final Path    filePath;
+        private final String  ext;
+        private final boolean doLoop;
 
-        DiskSoundInstance(Path oggPath) {
+        DiskSoundInstance(Path filePath, String ext, boolean doLoop) {
             super(DUMMY_SOUND_EVENT, SoundCategory.MASTER, Random.create());
-            this.oggPath         = oggPath;
+            this.filePath        = filePath;
+            this.ext             = ext;
+            this.doLoop          = doLoop;
             this.volume          = 1.0f;
             this.pitch           = 1.0f;
-            this.repeat          = true;
+            this.repeat          = doLoop;
             this.repeatDelay     = 0;
             this.relative        = true;
             this.attenuationType = SoundInstance.AttenuationType.NONE;
         }
 
+        /**
+         * Called once per play / once per loop iteration.
+         * Always opens a FRESH stream — never cache, or repeat iterations hit EOF.
+         */
         @Override
         public CompletableFuture<AudioStream> getAudioStream(SoundLoader loader,
                                                               Identifier id,
                                                               boolean repeatInstantly) {
             try {
-                InputStream in = Files.newInputStream(oggPath);
-                return CompletableFuture.completedFuture(new OggAudioStream(in));
+                InputStream in = new BufferedInputStream(Files.newInputStream(filePath));
+                AudioStream stream = ext.equals("mp3")
+                        ? new Mp3AudioStream(in)
+                        : new OggAudioStream(in);
+                return CompletableFuture.completedFuture(stream);
             } catch (IOException e) {
                 return CompletableFuture.failedFuture(
                     new RuntimeException(
-                        "StabShot: failed to open OGG: " + oggPath
-                        + " — " + e.getMessage(), e));
+                        "StabShot: can't open audio: " + filePath + " — " + e.getMessage(), e));
             }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Mp3AudioStream — pure-Java MP3 decoder via JLayer (Android-safe)
+    // Decodes MP3 frames on demand and serves PCM in chunks to OpenAL.
+    // ------------------------------------------------------------------
+
+    @Environment(EnvType.CLIENT)
+    static class Mp3AudioStream implements AudioStream {
+
+        private final Bitstream bitstream;
+        private final Decoder   decoder;
+
+        private byte[] overflowBytes = new byte[0];
+        private int    overflowPos   = 0;
+
+        private int     sampleRate = 44100;
+        private int     channels   = 2;
+        private boolean headerRead = false;
+
+        Mp3AudioStream(InputStream in) {
+            this.bitstream = new Bitstream(in);
+            this.decoder   = new Decoder();
+        }
+
+        /**
+         * Minecraft asks for `size` bytes of 16-bit signed little-endian PCM.
+         * We decode MP3 frames until we have enough, then return up to `size` bytes.
+         */
+        @Override
+        public ByteBuffer read(int size) throws IOException {
+            while ((overflowBytes.length - overflowPos) < size) {
+                if (!decodeNextFrame()) break;
+            }
+
+            int available = overflowBytes.length - overflowPos;
+            if (available <= 0) {
+                return ByteBuffer.allocateDirect(0); // EOF
+            }
+
+            int toReturn = Math.min(size, available);
+            ByteBuffer buf = ByteBuffer.allocateDirect(toReturn);
+            buf.put(overflowBytes, overflowPos, toReturn);
+            overflowPos += toReturn;
+            buf.flip();
+            return buf;
+        }
+
+        private boolean decodeNextFrame() throws IOException {
+            try {
+                Header header = bitstream.readFrame();
+                if (header == null) return false;
+
+                if (!headerRead) {
+                    sampleRate = header.getSampleRate();
+                    channels   = (header.mode() == Header.SINGLE_CHANNEL) ? 1 : 2;
+                    headerRead = true;
+                }
+
+                SampleBuffer output = (SampleBuffer) decoder.decodeFrame(header, bitstream);
+                bitstream.closeFrame();
+
+                short[] samples = output.getBuffer();
+                int     count   = output.getBufferLength();
+
+                int remaining = overflowBytes.length - overflowPos;
+                byte[] newBuf = new byte[remaining + count * 2];
+                if (remaining > 0) {
+                    System.arraycopy(overflowBytes, overflowPos, newBuf, 0, remaining);
+                }
+                int off = remaining;
+                for (int i = 0; i < count; i++) {
+                    short s = samples[i];
+                    newBuf[off++] = (byte)(s & 0xFF);
+                    newBuf[off++] = (byte)((s >> 8) & 0xFF);
+                }
+                overflowBytes = newBuf;
+                overflowPos   = 0;
+                return true;
+
+            } catch (BitstreamException e) {
+                if (e.getErrorCode() == BitstreamErrors.STREAM_EOF) return false;
+                throw new IOException("MP3 bitstream error: " + e.getMessage(), e);
+            } catch (DecoderException e) {
+                throw new IOException("MP3 decoder error: " + e.getMessage(), e);
+            }
+        }
+
+        @Override
+        public AudioFormat getFormat() {
+            return new AudioFormat(sampleRate, channels);
+        }
+
+        @Override
+        public void close() throws IOException {
+            try { bitstream.close(); } catch (BitstreamException ignored) {}
         }
     }
 }
