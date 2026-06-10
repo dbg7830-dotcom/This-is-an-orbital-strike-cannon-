@@ -12,8 +12,11 @@ import net.minecraft.sound.SoundEvent;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.random.Random;
 
+import javax.sound.sampled.AudioFormat;
+
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -31,15 +34,6 @@ public class ThemeSongPlayer {
     private static boolean           playing         = false;
     private static boolean           looping         = false;
 
-    // ------------------------------------------------------------------
-    // Play
-    // ------------------------------------------------------------------
-
-    /**
-     * @param name song name without extension
-     * @param loop true = repeat forever until /ts stop
-     * @return null on success, error string on failure
-     */
     public static String play(String name, boolean loop) {
         stop();
 
@@ -49,7 +43,6 @@ public class ThemeSongPlayer {
             catch (Exception e) { return "Could not create songs folder: " + e.getMessage(); }
         }
 
-        // Try .ogg first, then .mp3
         Path   file = null;
         String ext  = null;
         for (String e : new String[]{"ogg", "mp3"}) {
@@ -94,10 +87,6 @@ public class ThemeSongPlayer {
         return null;
     }
 
-    // ------------------------------------------------------------------
-    // Stop
-    // ------------------------------------------------------------------
-
     public static void stop() {
         if (currentInstance == null) { playing = false; currentSong = null; looping = false; return; }
         MinecraftClient client = MinecraftClient.getInstance();
@@ -110,10 +99,6 @@ public class ThemeSongPlayer {
         playing         = false;
         looping         = false;
     }
-
-    // ------------------------------------------------------------------
-    // Song list — finds both .ogg and .mp3
-    // ------------------------------------------------------------------
 
     public static List<String> getSongNames() {
         List<String> names = new ArrayList<>();
@@ -142,10 +127,6 @@ public class ThemeSongPlayer {
         return FabricLoader.getInstance().getConfigDir().resolve(SONGS_FOLDER);
     }
 
-    // ------------------------------------------------------------------
-    // DiskSoundInstance — routes to OGG or MP3 stream
-    // ------------------------------------------------------------------
-
     @Environment(EnvType.CLIENT)
     static class DiskSoundInstance extends AbstractSoundInstance implements FabricSoundInstance {
 
@@ -166,10 +147,6 @@ public class ThemeSongPlayer {
             this.attenuationType = SoundInstance.AttenuationType.NONE;
         }
 
-        /**
-         * Called once per play / once per loop iteration.
-         * Always opens a FRESH stream — never cache, or repeat iterations hit EOF.
-         */
         @Override
         public CompletableFuture<AudioStream> getAudioStream(SoundLoader loader,
                                                               Identifier id,
@@ -187,11 +164,6 @@ public class ThemeSongPlayer {
             }
         }
     }
-
-    // ------------------------------------------------------------------
-    // Mp3AudioStream — pure-Java MP3 decoder via JLayer (Android-safe)
-    // Decodes MP3 frames on demand and serves PCM in chunks to OpenAL.
-    // ------------------------------------------------------------------
 
     @Environment(EnvType.CLIENT)
     static class Mp3AudioStream implements AudioStream {
@@ -211,10 +183,6 @@ public class ThemeSongPlayer {
             this.decoder   = new Decoder();
         }
 
-        /**
-         * Minecraft asks for `size` bytes of 16-bit signed little-endian PCM.
-         * We decode MP3 frames until we have enough, then return up to `size` bytes.
-         */
         @Override
         public ByteBuffer read(int size) throws IOException {
             while ((overflowBytes.length - overflowPos) < size) {
@@ -223,7 +191,7 @@ public class ThemeSongPlayer {
 
             int available = overflowBytes.length - overflowPos;
             if (available <= 0) {
-                return ByteBuffer.allocateDirect(0); // EOF
+                return ByteBuffer.allocateDirect(0);
             }
 
             int toReturn = Math.min(size, available);
@@ -276,7 +244,18 @@ public class ThemeSongPlayer {
 
         @Override
         public AudioFormat getFormat() {
-            return new AudioFormat(sampleRate, channels);
+            // javax.sound.sampled.AudioFormat — actual return type of AudioStream.getFormat()
+            // PCM_SIGNED, 16-bit, little-endian (matches byte order written in decodeNextFrame)
+            int frameSize = channels * 2;
+            return new AudioFormat(
+                AudioFormat.Encoding.PCM_SIGNED,
+                sampleRate,
+                16,
+                channels,
+                frameSize,
+                sampleRate,
+                false
+            );
         }
 
         @Override
