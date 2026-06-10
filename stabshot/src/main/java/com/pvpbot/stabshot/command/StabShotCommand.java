@@ -68,23 +68,23 @@ public class StabShotCommand {
                 .then(literal("legacy").executes(ctx -> execSetMode(ctx, StabConfig.MODE_LEGACY))))
             .then(literal("set")
                 .then(literal("power")
-                    .then(argument("value", FloatArgumentType.floatArg(0.1f, 50.0f))
+                    .then(argument("value", FloatArgumentType.floatArg(0.0f))
                         .executes(ctx -> execSetPower(ctx,
                                 FloatArgumentType.getFloat(ctx, "value")))))
                 .then(literal("radius")
-                    .then(argument("value", IntegerArgumentType.integer(0, 6))
+                    .then(argument("value", FloatArgumentType.floatArg(0.0f))
                         .executes(ctx -> execSetRadius(ctx,
-                                IntegerArgumentType.getInteger(ctx, "value")))))
+                                FloatArgumentType.getFloat(ctx, "value")))))
                 .then(literal("wemmburadius")
-                    .then(argument("value", IntegerArgumentType.integer(0, 6))
+                    .then(argument("value", FloatArgumentType.floatArg(0.0f))
                         .executes(ctx -> execSetWemmbuRadius(ctx,
                                 IntegerArgumentType.getInteger(ctx, "value")))))
                 .then(literal("startabove")
-                    .then(argument("value", IntegerArgumentType.integer(0, 10))
+                    .then(argument("value", IntegerArgumentType.integer(0))
                         .executes(ctx -> execSetStartAbove(ctx,
                                 IntegerArgumentType.getInteger(ctx, "value")))))
                 .then(literal("depth")
-                    .then(argument("value", IntegerArgumentType.integer(1, 256))
+                    .then(argument("value", IntegerArgumentType.integer(1))
                         .executes(ctx -> execSetDepth(ctx,
                                 IntegerArgumentType.getInteger(ctx, "value")))))
                 .then(literal("terrain")
@@ -92,13 +92,13 @@ public class StabShotCommand {
                         .executes(ctx -> execSetTerrain(ctx,
                                 BoolArgumentType.getBool(ctx, "value")))))
                 .then(literal("ledgechance")
-                    .then(argument("value", FloatArgumentType.floatArg(0.0f, 1.0f))
+                    .then(argument("value", FloatArgumentType.floatArg(0.0f))
                         .executes(ctx -> execSetLedgeChance(ctx,
                                 FloatArgumentType.getFloat(ctx, "value")))))
                 .then(literal("delay")
-                    .then(argument("value", IntegerArgumentType.integer(0, 200))
+                    .then(argument("value", IntegerArgumentType.integer(0))
                         .executes(ctx -> execSetDelay(ctx,
-                                IntegerArgumentType.getInteger(ctx, "value"))))))
+                                FloatArgumentType.getFloat(ctx, "value"))))))
             .then(literal("reload").executes(StabShotCommand::execReload))
             .then(literal("info").executes(StabShotCommand::execInfo));
     }
@@ -118,7 +118,7 @@ public class StabShotCommand {
         return 1;
     }
 
-    private static int execSetWemmbuRadius(CommandContext<ServerCommandSource> ctx, int value) {
+    private static int execSetWemmbuRadius(CommandContext<ServerCommandSource> ctx, float value) {
         StabConfig.wemmbuRadius = value;
         StabConfig.save();
         int total = (value * 2 + 1) * (value * 2 + 1);
@@ -128,7 +128,7 @@ public class StabShotCommand {
         return 1;
     }
 
-    private static int execSetRadius(CommandContext<ServerCommandSource> ctx, int value) {
+    private static int execSetRadius(CommandContext<ServerCommandSource> ctx, float value) {
         StabConfig.strikeRadius = value;
         StabConfig.save();
         int total = (value * 2 + 1) * (value * 2 + 1);

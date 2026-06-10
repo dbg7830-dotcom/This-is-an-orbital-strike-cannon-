@@ -104,8 +104,8 @@ public class StabConfig {
             mode            = normalizeMode(props.getProperty("mode", mode));
             explosionPower  = parseFloat(props, "explosion_power", explosionPower);
             columnStartAbove = parseInt(props, "column_start_above", columnStartAbove);
-            strikeRadius    = parseInt(props, "strike_radius", strikeRadius);
-            wemmbuRadius    = parseInt(props, "wemmbu_radius", wemmbuRadius);
+            strikeRadius    = parseFloat(props, "strike_radius", strikeRadius);
+            wemmbuRadius    = parseFloat(props, "wemmbu_radius", wemmbuRadius);
             blastDepth      = parseInt(props, "blast_depth", blastDepth);
             destroyTerrain  = parseBoolean(props, "destroy_terrain", destroyTerrain);
             ledgeBlockChance = parseFloat(props, "ledge_block_chance", ledgeBlockChance);

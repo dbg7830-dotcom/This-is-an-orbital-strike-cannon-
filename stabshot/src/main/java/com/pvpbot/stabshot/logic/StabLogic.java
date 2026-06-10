@@ -71,7 +71,7 @@ public class StabLogic {
     }
 
     private static void summonWemmbu(ServerWorld world, int cx, int cz) {
-        int radius  = Math.max(0, StabConfig.wemmbuRadius);
+        int radius  = Math.max(0, (int) StabConfig.wemmbuRadius);
         int bottomY = world.getBottomY() + WEMMBU_STOP_ABOVE_BOTTOM;
         int topY    = Math.max(findHighestSurfaceInFootprint(world, cx, cz, radius), bottomY);
 
@@ -83,7 +83,7 @@ public class StabLogic {
     }
 
     private static void summonLegacy(ServerWorld world, int x, int y, int z) {
-        int radius  = Math.max(0, StabConfig.strikeRadius);
+        int radius  = Math.max(0, (int) StabConfig.strikeRadius);
         int strikeY = y + StabConfig.columnStartAbove;
         int bottomY = y - Math.max(1, StabConfig.blastDepth);
 
