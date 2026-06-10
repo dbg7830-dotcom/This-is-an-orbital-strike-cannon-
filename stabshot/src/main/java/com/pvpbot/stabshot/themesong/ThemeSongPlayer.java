@@ -208,7 +208,7 @@ public class ThemeSongPlayer {
                 if (header == null) return false;
 
                 if (!headerRead) {
-                    sampleRate = header.getSampleRate();
+sampleRate = header.frequency();
                     channels   = (header.mode() == Header.SINGLE_CHANNEL) ? 1 : 2;
                     headerRead = true;
                 }
