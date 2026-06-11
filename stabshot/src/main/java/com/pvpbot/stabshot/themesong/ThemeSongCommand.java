@@ -11,13 +11,6 @@ import net.minecraft.text.Text;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
 
-/**
- * /ts play <song>       — play once
- * /ts play <song> on    — loop forever
- * /ts play <song> off   — play once (explicit)
- * /ts stop              — stop playback
- * /ts list              — list available songs
- */
 @Environment(EnvType.CLIENT)
 public class ThemeSongCommand {
 
@@ -30,7 +23,7 @@ public class ThemeSongCommand {
                     .then(literal("loop")
                         .then(argument("song", StringArgumentType.greedyString())
                             .executes(ctx -> execPlay(ctx, true))))
-                    // /ts play <song name with spaces>  (no loop)
+                    // /ts play <song name with spaces>
                     .then(argument("song", StringArgumentType.greedyString())
                         .executes(ctx -> execPlay(ctx, false)))
                 )
@@ -77,7 +70,7 @@ public class ThemeSongCommand {
         }
         ctx.getSource().sendFeedback(Text.literal("§6§lSongs (" + songs.size() + "):"));
         songs.forEach(s -> ctx.getSource().sendFeedback(Text.literal("§7 • §f" + s)));
-        ctx.getSource().sendFeedback(Text.literal("§7Usage: §f/ts play <name> §8[on/off]"));
+        ctx.getSource().sendFeedback(Text.literal("§7Usage: §f/ts play [loop] <name>"));
         return 1;
     }
 }
