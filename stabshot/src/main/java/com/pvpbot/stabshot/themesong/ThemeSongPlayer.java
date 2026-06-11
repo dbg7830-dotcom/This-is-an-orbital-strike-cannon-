@@ -34,8 +34,8 @@ public class ThemeSongPlayer {
     private static boolean           playing         = false;
     private static boolean           looping         = false;
 
-    private static Thread        loopThread  = null;
-    private static AtomicBoolean loopActive  = new AtomicBoolean(false);
+    private static Thread        loopThread = null;
+    private static AtomicBoolean loopActive = new AtomicBoolean(false);
 
     public static String play(String name, boolean loop) {
         stop();
@@ -63,7 +63,6 @@ public class ThemeSongPlayer {
         if (client == null) return "Client not ready.";
 
         final Path   fFile = file;
-        final String fName = name;
         final String fExt  = ext;
 
         currentSong = name;
@@ -321,4 +320,4 @@ public class ThemeSongPlayer {
             try { bitstream.close(); } catch (BitstreamException ignored) {}
         }
     }
-                        }
+        }
