@@ -26,15 +26,13 @@ public class ThemeSongCommand {
             dispatcher.register(literal("ts")
 
                 .then(literal("play")
-                    .then(argument("song", StringArgumentType.string())
-                        .suggests((ctx, builder) -> {
-                            ThemeSongPlayer.getSongNames().forEach(builder::suggest);
-                            return builder.buildFuture();
-                        })
-                        .then(literal("on") .executes(ctx -> execPlay(ctx, true)))
-                        .then(literal("off").executes(ctx -> execPlay(ctx, false)))
-                        .executes(ctx -> execPlay(ctx, false))
-                    )
+                    // /ts play loop <song name with spaces>
+                    .then(literal("loop")
+                        .then(argument("song", StringArgumentType.greedyString())
+                            .executes(ctx -> execPlay(ctx, true))))
+                    // /ts play <song name with spaces>  (no loop)
+                    .then(argument("song", StringArgumentType.greedyString())
+                        .executes(ctx -> execPlay(ctx, false)))
                 )
 
                 .then(literal("stop").executes(ThemeSongCommand::execStop))

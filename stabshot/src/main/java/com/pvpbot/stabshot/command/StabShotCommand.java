@@ -78,7 +78,7 @@ public class StabShotCommand {
                 .then(literal("wemmburadius")
                     .then(argument("value", FloatArgumentType.floatArg(0.0f))
                         .executes(ctx -> execSetWemmbuRadius(ctx,
-                                IntegerArgumentType.getInteger(ctx, "value")))))
+                                FloatArgumentType.getFloat(ctx, "value")))))
                 .then(literal("startabove")
                     .then(argument("value", IntegerArgumentType.integer(0))
                         .executes(ctx -> execSetStartAbove(ctx,
