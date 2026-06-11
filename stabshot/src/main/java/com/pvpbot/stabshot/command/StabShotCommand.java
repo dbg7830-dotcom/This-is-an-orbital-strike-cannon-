@@ -18,23 +18,6 @@ import net.minecraft.text.Text;
 import static net.minecraft.server.command.CommandManager.argument;
 import static net.minecraft.server.command.CommandManager.literal;
 
-/**
- * StabShotCommand — all /stabshot, /pb, and /giveob commands.
- *
- * /stabshot mode wemmbu|legacy     — switch strike mode
- * /stabshot set power <float>      — custom entity damage strength
- * /stabshot set radius <int>       — exact bounded X/Z radius
- * /stabshot set startabove <int>   — legacy visual start height
- * /stabshot set depth <int>        — legacy terrain blast depth
- * /stabshot set terrain <bool>     — custom block carving on/off
- * /stabshot set delay <int>        — fire delay in ticks (0=instant, 20=1s)
- * /stabshot reload                 — reload config from file
- * /stabshot info                   — show current config
- *
- * /pb has the same mode/set/reload/info subcommands as /stabshot.
- * /giveob <amount> stab [player]   — give finite stab rods (1 use each)
- * /giveob infinite stab [player]   — give infinite stab rod
- */
 public class StabShotCommand {
 
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
@@ -98,7 +81,7 @@ public class StabShotCommand {
                 .then(literal("delay")
                     .then(argument("value", IntegerArgumentType.integer(0))
                         .executes(ctx -> execSetDelay(ctx,
-                                FloatArgumentType.getFloat(ctx, "value"))))))
+                                IntegerArgumentType.getInteger(ctx, "value"))))))
             .then(literal("reload").executes(StabShotCommand::execReload))
             .then(literal("info").executes(StabShotCommand::execInfo));
     }
@@ -121,20 +104,16 @@ public class StabShotCommand {
     private static int execSetWemmbuRadius(CommandContext<ServerCommandSource> ctx, float value) {
         StabConfig.wemmbuRadius = value;
         StabConfig.save();
-        int total = (value * 2 + 1) * (value * 2 + 1);
         ctx.getSource().sendFeedback(() ->
-                Text.literal("§6[StabShot] §7wemmbu_radius → §f" + value
-                        + " §7(" + total + " column shaft)"), false);
+                Text.literal("§6[StabShot] §7wemmbu_radius → §f" + value), false);
         return 1;
     }
 
     private static int execSetRadius(CommandContext<ServerCommandSource> ctx, float value) {
         StabConfig.strikeRadius = value;
         StabConfig.save();
-        int total = (value * 2 + 1) * (value * 2 + 1);
         ctx.getSource().sendFeedback(() ->
-                Text.literal("§6[StabShot] §7strike_radius → §f" + value
-                        + " §7(exact " + total + " column footprint)"), false);
+                Text.literal("§6[StabShot] §7strike_radius → §f" + value), false);
         return 1;
     }
 
@@ -170,8 +149,8 @@ public class StabShotCommand {
         StabConfig.ledgeBlockChance = value;
         StabConfig.save();
         ctx.getSource().sendFeedback(() ->
-                Text.literal("\u00a76[StabShot] \u00a77ledge_block_chance \u2192 \u00a7f" + value
-                        + " \u00a77(" + (int)(value * 100) + "% wall blocks kept as protrusions)"),
+                Text.literal("§6[StabShot] §7ledge_block_chance → §f" + value
+                        + " §7(" + (int)(value * 100) + "% wall blocks kept as protrusions)"),
                 false);
         return 1;
     }
@@ -182,8 +161,7 @@ public class StabShotCommand {
         double seconds = value / 20.0;
         ctx.getSource().sendFeedback(() ->
                 Text.literal("§6[StabShot] §7fire_delay_ticks → §f" + value
-                        + " §7(" + String.format("%.2f", seconds) + "s) — applies to both modes"),
-                false);
+                        + " §7(" + String.format("%.2f", seconds) + "s)"), false);
         return 1;
     }
 
@@ -201,8 +179,8 @@ public class StabShotCommand {
                 "§6§l── Vulgar's OSC Config ──\n"
                 + "§7mode:                §f" + StabConfig.mode + "\n"
                 + "§7custom_damage_power: §f" + StabConfig.explosionPower + "\n"
-                + "§7strike_radius:       §f" + StabConfig.strikeRadius
-                        + " §7(exact " + (StabConfig.strikeRadius*2+1)*(StabConfig.strikeRadius*2+1) + " columns)\n"
+                + "§7strike_radius:       §f" + StabConfig.strikeRadius + "\n"
+                + "§7wemmbu_radius:       §f" + StabConfig.wemmbuRadius + "\n"
                 + "§7column_start_above:  §f" + StabConfig.columnStartAbove + " §7(legacy)\n"
                 + "§7blast_depth:         §f" + StabConfig.blastDepth + " §7(legacy only)\n"
                 + "§7destroy_terrain:     §f" + StabConfig.destroyTerrain + "\n"
@@ -259,4 +237,4 @@ public class StabShotCommand {
             return null;
         }
     }
-                                                                       }
+}
