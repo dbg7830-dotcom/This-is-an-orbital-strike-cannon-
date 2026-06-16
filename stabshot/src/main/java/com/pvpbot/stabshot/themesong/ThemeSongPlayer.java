@@ -126,17 +126,17 @@ public class ThemeSongPlayer {
     private static long estimateDurationMs(Path file, String ext) {
         try {
             if (ext.equals("mp3")) {
-                long totalMs = 0;
                 try (InputStream in = new BufferedInputStream(Files.newInputStream(file))) {
                     Bitstream bs = new Bitstream(in);
-                    Header h;
-                    while ((h = bs.readFrame()) != null) {
-                        totalMs += (long) h.msPerFrame();
-                        bs.closeFrame();
-                    }
+                    Header first = bs.readFrame();
+                    if (first == null) { bs.close(); return 0; }
+                    int bitrate = first.bitrate();
+                    bs.closeFrame();
                     bs.close();
+                    if (bitrate <= 0) return 0;
+                    long fileSize = Files.size(file);
+                    return (fileSize * 8000L) / bitrate;
                 }
-                return totalMs;
             } else {
                 try (InputStream in = new BufferedInputStream(Files.newInputStream(file))) {
                     OggAudioStream ogg = new OggAudioStream(in);
@@ -320,4 +320,4 @@ public class ThemeSongPlayer {
             try { bitstream.close(); } catch (BitstreamException ignored) {}
         }
     }
-}
+                }
